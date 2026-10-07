@@ -32,6 +32,13 @@ from jobshop.tools.errors import ToolError
 
 STATE_FORMAT = 1
 
+# Blast-radius limits. A confused or manipulated model can only waste scratch space, and these
+# bound how much: each draft holds a full copy of the instance, and every pending request is
+# something a human has to read.
+MAX_OPEN_DRAFTS = 10
+MAX_CHANGES_PER_DRAFT = 20
+MAX_PENDING_REQUESTS = 5
+
 
 @dataclass(frozen=True)
 class Committed:
@@ -58,6 +65,11 @@ class Draft:
 
     def edited(self, instance: Instance, description: str) -> None:
         """Record a change. Any earlier solution no longer matches the instance, so drop it."""
+        if len(self.changes) >= MAX_CHANGES_PER_DRAFT:
+            raise ToolError(
+                f"draft {self.id} already has {MAX_CHANGES_PER_DRAFT} changes, which is the limit. "
+                "Reschedule and review it, or discard it and start a smaller one."
+            )
         self.instance = instance
         self.changes.append(description)
         self.schedule = None
@@ -234,6 +246,11 @@ class Store:
 
     def create_draft(self) -> Draft:
         self._require_transaction()
+        if len(self._drafts) >= MAX_OPEN_DRAFTS:
+            raise ToolError(
+                f"there are already {MAX_OPEN_DRAFTS} open drafts, which is the limit. "
+                "Discard drafts you no longer need (discard_draft) before creating another."
+            )
         self._draft_counter += 1
         draft = Draft(
             id=f"D{self._draft_counter}",

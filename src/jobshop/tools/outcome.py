@@ -18,6 +18,7 @@ from jobshop.tools.views import KPIView
 
 @dataclass
 class DraftOutcome:
+    changes: list[str] = field(default_factory=list)  # what the draft actually contains
     kpi_before: KPIView | None = None
     kpi_after: KPIView | None = None
     needs_approval: bool = False
@@ -40,6 +41,7 @@ def draft_outcome(ctx: ToolContext, draft_id: str | None) -> DraftOutcome:
         return DraftOutcome(warnings=[f"Draft {draft_id} has no solved schedule, so there are no after-KPIs."])
 
     return DraftOutcome(
+        changes=list(draft.changes),
         kpi_before=views.kpi_view(committed.instance, compute_kpis(committed.instance, committed.schedule)),
         kpi_after=views.kpi_view(draft.instance, compute_kpis(draft.instance, draft.schedule)),
         needs_approval=bool(draft.changes),

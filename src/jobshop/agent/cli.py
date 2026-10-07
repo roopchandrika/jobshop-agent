@@ -31,6 +31,7 @@ from jobshop.tools.human import kpi_lines
 from jobshop.tools.functions import ToolContext
 from jobshop.tools.registry import ToolRegistry
 from jobshop.tools.store import Store
+from jobshop.tools.text import terminal_safe
 
 HELP = """Type a request, e.g. "Machine M4 is down from 14:00 to 17:00 today and order O-112 is now urgent."
 Commands:  /state  show the live plan   /clock YYYY-MM-DD HH:MM  advance the shop clock
@@ -95,7 +96,10 @@ class ChatSession:
         self.client, self.ctx, self.config = client, ctx, config
         self.registry = ToolRegistry(ctx)
         self.tracer = tracer or Tracer()
-        self.out, self.ask = out, ask
+        # Everything shown to the planner passes through terminal_safe, whatever its source: a
+        # model's summary (or a note it echoed) must not be able to redraw the approval screen.
+        self.out: Callable[[str], None] = lambda text: out(terminal_safe(text))
+        self.ask = ask
         self.messages: list[dict[str, Any]] = []
         self._notices: list[str] = []  # facts from this program (not the planner) for the next turn
 
@@ -132,7 +136,7 @@ class ChatSession:
             return
         self.out(f"\n{final.clarifying_question or final.summary}")
         if final.changes_made:
-            self.out("\nChanges in the draft:")
+            self.out("\nChanges in the draft (recorded by the system):")
             self.out("\n".join(f"  - {c}" for c in final.changes_made))
         if final.kpi_before and final.kpi_after:
             self.out(f"\nKPIs (from the solver, not from the model):\n" + "\n".join(kpi_lines(final.kpi_before, final.kpi_after)))

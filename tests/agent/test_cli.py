@@ -19,7 +19,7 @@ def proposal(summary="O-101 goes first.", priority=5):
             tool("change_priority", "a2", draft_id="D1", order_id="O-101", priority=priority),
             tool("reschedule", "a3", draft_id="D1"),
         ),
-        submit(summary=summary, draft_id="D1", changes_made=["O-101 priority -> 5"]),
+        submit(summary=summary, draft_id="D1"),
     ]
 
 

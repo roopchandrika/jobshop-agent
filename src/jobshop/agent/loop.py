@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from jobshop.agent.trace import Tracer
 from jobshop.tools.errors import ToolError
+from jobshop.tools.functions import DraftId
 from jobshop.tools.outcome import draft_outcome
 from jobshop.tools.registry import ToolRegistry
 from jobshop.tools.views import KPIView
@@ -42,19 +43,19 @@ class AnswerPayload(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    # No `changes_made` here on purpose: the list a human sees beside the approval prompt comes
+    # from the draft itself (see FinalResponse), so the model cannot misdescribe what it changed.
     summary: str = Field(
         min_length=1,
+        max_length=4000,
         description="The outcome and trade-offs in plain language for the planner. Quote only numbers from tool results.",
     )
-    changes_made: list[str] = Field(
-        default_factory=list,
-        description="The changes you applied to the draft, one short line each, e.g. 'M2 down 14:00-17:00'.",
-    )
-    draft_id: str | None = Field(
+    draft_id: DraftId | None = Field(
         None, description="The draft that holds your proposal, if you made one."
     )
     clarifying_question: str | None = Field(
         None,
+        max_length=1000,
         description="Set ONLY if the request is too ambiguous to act on. Then make no changes.",
     )
 
@@ -73,6 +74,7 @@ SUBMIT_SPEC = {
 class FinalResponse(AnswerPayload):
     """The answer plus the parts the harness computes itself."""
 
+    changes_made: list[str] = Field(default_factory=list)  # recorded by the draft, not typed by the model
     kpi_before: KPIView | None = None
     kpi_after: KPIView | None = None
     needs_approval: bool = False
@@ -207,6 +209,7 @@ def run_turn(
             outcome = draft_outcome(registry.ctx, payload.draft_id)
             final = FinalResponse(
                 **payload.model_dump(),
+                changes_made=outcome.changes,
                 kpi_before=outcome.kpi_before,
                 kpi_after=outcome.kpi_after,
                 needs_approval=outcome.needs_approval,

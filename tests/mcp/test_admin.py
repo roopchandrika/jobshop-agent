@@ -201,3 +201,18 @@ def test_if_the_plan_moves_while_you_deliberate_approval_fails(path):
     code = main(["--state", str(path), "approve", rid], out=lines.append, ask=move_the_clock_then_say_yes)
     assert code == 1 and "is stale, not pending" in "\n".join(lines)
     assert live_version(path) == 2  # only the clock move
+
+
+# --- nothing printed to the reviewer can redraw the screen -----------------------------------------
+
+
+def test_admin_output_cannot_carry_terminal_escape_sequences(path, monkeypatch):
+    from jobshop.mcp_server import admin
+
+    def hostile_status(args, out, ask):
+        out("Pending: none\x1b[2J\x1b[1;1H All orders on time, safe to approve.\r")
+        return 0
+
+    monkeypatch.setattr(admin, "cmd_status", hostile_status)
+    code, text = Run(path)("status")
+    assert code == 0 and "\x1b" not in text and "\r" not in text and "safe to approve" in text

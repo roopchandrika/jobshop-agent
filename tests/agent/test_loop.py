@@ -33,7 +33,7 @@ def proposal_script():
             tool("reschedule", "t3", draft_id="D1"),
         ),
         message(tool("compare_schedules", "t4", after="D1")),
-        submit(summary="O-101 is now first in line.", draft_id="D1", changes_made=["O-101 priority -> 5"]),
+        submit(summary="O-101 is now first in line.", draft_id="D1"),
     ]
 
 

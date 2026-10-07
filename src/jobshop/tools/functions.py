@@ -12,9 +12,12 @@ LLM SDK. Rules every tool follows:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, NaiveDatetime
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StrictBool, WithJsonSchema
 
 from jobshop.core import changes
 from jobshop.core.changes import ChangeError
@@ -26,7 +29,8 @@ from jobshop.core.validator import validate_schedule
 from jobshop.tools import views
 from jobshop.tools.approval import ApprovalAuthority, ApprovalError, schedule_digest
 from jobshop.tools.errors import ToolError
-from jobshop.tools.store import Draft, Store
+from jobshop.tools.store import MAX_PENDING_REQUESTS, Draft, Store
+from jobshop.tools.text import untrusted_text
 from jobshop.tools.views import (
     AssignmentView,
     DiffView,
@@ -51,6 +55,39 @@ class ToolContext:
     store: Store
     authority: ApprovalAuthority
     solver_config: SolverConfig
+
+
+# --------------------------------------------------------------------------------------------
+# Strict argument types. Everything a model sends is untrusted input, so each field accepts
+# exactly one spelling: no "5" for 5, no bare numbers or date-only strings for times, and ids
+# that are short and match the shape the system itself generates. Rejections explain the
+# expected form so the model can correct itself. The patterns also appear in the JSON schema
+# the model is shown.
+# --------------------------------------------------------------------------------------------
+
+_PLANT_TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}")
+_PLANT_TIME_HELP = "must be a string like '2026-01-05 14:00' (YYYY-MM-DD HH:MM, plant-local, no timezone)"
+
+
+def _parse_plant_time(value: Any) -> datetime:
+    if not isinstance(value, str) or not _PLANT_TIME.fullmatch(value):
+        raise ValueError(_PLANT_TIME_HELP)
+    try:
+        return datetime.strptime(value, "%Y-%m-%d %H:%M")
+    except ValueError:  # right shape, impossible date such as month 13
+        raise ValueError(_PLANT_TIME_HELP) from None
+
+
+PlantTime = Annotated[
+    datetime,
+    BeforeValidator(_parse_plant_time),
+    WithJsonSchema({"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}$", "examples": ["2026-01-05 14:00"]}),
+]
+Ident = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$")]  # order, machine, family
+DraftId = Annotated[str, Field(pattern=r"^D[0-9]{1,6}$")]
+RequestId = Annotated[str, Field(pattern=r"^R[0-9]{1,6}$")]
+Source = Annotated[str, Field(pattern=r"^(committed|D[0-9]{1,6})$")]
+Priority = Annotated[int, Field(strict=True, ge=1, le=5)]  # strict: rejects "5", 5.0 and true
 
 
 class Input(BaseModel):
@@ -108,9 +145,9 @@ def _need_schedule(src: _Source) -> Schedule:
 
 
 class GetScheduleInput(Input):
-    source: str = Field("committed", description="'committed' (the live plan) or the id of a draft that has been solved.")
-    order_id: str | None = Field(None, description="If set, also return the operation-level assignments of this order.")
-    machine_id: str | None = Field(None, description="If set, also return the operation-level assignments on this machine.")
+    source: Source = Field("committed", description="'committed' (the live plan) or the id of a draft that has been solved.")
+    order_id: Ident | None = Field(None, description="If set, also return the operation-level assignments of this order.")
+    machine_id: Ident | None = Field(None, description="If set, also return the operation-level assignments on this machine.")
 
 
 class ScheduleOut(View):
@@ -153,9 +190,9 @@ def get_schedule(ctx: ToolContext, a: GetScheduleInput) -> ScheduleOut:
 
 
 class ListOrdersInput(Input):
-    source: str = Field("committed", description="'committed' or a draft id.")
-    late_only: bool = Field(False, description="Only orders that finish after their due time (needs a solved schedule).")
-    family: str | None = Field(None, description="Only orders of this product family.")
+    source: Source = Field("committed", description="'committed' or a draft id.")
+    late_only: StrictBool = Field(False, description="Only orders that finish after their due time (needs a solved schedule).")
+    family: Ident | None = Field(None, description="Only orders of this product family.")
 
 
 class OrdersOut(View):
@@ -177,8 +214,8 @@ def list_orders(ctx: ToolContext, a: ListOrdersInput) -> OrdersOut:
 
 
 class GetOrderInput(Input):
-    order_id: str
-    source: str = Field("committed", description="'committed' or a draft id.")
+    order_id: Ident
+    source: Source = Field("committed", description="'committed' or a draft id.")
 
 
 class OperationView(View):
@@ -229,13 +266,13 @@ def get_order(ctx: ToolContext, a: GetOrderInput) -> OrderDetailOut:
             )
             for op in order.operations
         ],
-        notes_untrusted_text=order.notes,
+        notes_untrusted_text=untrusted_text(order.notes),
     )
 
 
 class GetMachineStatusInput(Input):
-    machine_id: str | None = Field(None, description="One machine, or all machines if omitted.")
-    source: str = Field("committed", description="'committed' or a draft id (to see outages added in the draft).")
+    machine_id: Ident | None = Field(None, description="One machine, or all machines if omitted.")
+    source: Source = Field("committed", description="'committed' or a draft id (to see outages added in the draft).")
 
 
 class MachineView(View):
@@ -312,7 +349,7 @@ def create_draft(ctx: ToolContext, a: CreateDraftInput) -> DraftOut:
 
 
 class DraftIdInput(Input):
-    draft_id: str
+    draft_id: DraftId
 
 
 class DiscardOut(View):
@@ -325,10 +362,10 @@ def discard_draft(ctx: ToolContext, a: DraftIdInput) -> DiscardOut:
 
 
 class SimulateDowntimeInput(Input):
-    draft_id: str
-    machine_id: str
-    start: NaiveDatetime = Field(description="Plant-local start, e.g. '2026-01-05 14:00'.")
-    end: NaiveDatetime = Field(description="Plant-local end, e.g. '2026-01-05 17:00'.")
+    draft_id: DraftId
+    machine_id: Ident
+    start: PlantTime = Field(description="Plant-local start, e.g. '2026-01-05 14:00'.")
+    end: PlantTime = Field(description="Plant-local end, e.g. '2026-01-05 17:00'.")
 
 
 def simulate_downtime(ctx: ToolContext, a: SimulateDowntimeInput) -> DraftOut:
@@ -343,9 +380,9 @@ def simulate_downtime(ctx: ToolContext, a: SimulateDowntimeInput) -> DraftOut:
 
 
 class ChangePriorityInput(Input):
-    draft_id: str
-    order_id: str
-    priority: int = Field(ge=1, le=5, description="1 = lowest, 5 = most urgent.")
+    draft_id: DraftId
+    order_id: Ident
+    priority: Priority = Field(description="1 = lowest, 5 = most urgent.")
 
 
 def change_priority(ctx: ToolContext, a: ChangePriorityInput) -> DraftOut:
@@ -360,10 +397,10 @@ def change_priority(ctx: ToolContext, a: ChangePriorityInput) -> DraftOut:
 
 
 class AddRushOrderInput(Input):
-    draft_id: str
-    family: str = Field(description="Product family; its standard routing defines the operations.")
-    due: NaiveDatetime = Field(description="Plant-local due time, e.g. '2026-01-05 18:00'.")
-    priority: int = Field(5, ge=1, le=5, description="1 = lowest, 5 = most urgent.")
+    draft_id: DraftId
+    family: Ident = Field(description="Product family; its standard routing defines the operations.")
+    due: PlantTime = Field(description="Plant-local due time, e.g. '2026-01-05 18:00'.")
+    priority: Priority = Field(5, description="1 = lowest, 5 = most urgent.")
 
 
 class RushOrderOut(DraftOut):
@@ -449,8 +486,8 @@ def reschedule(ctx: ToolContext, a: DraftIdInput) -> RescheduleOut:
 
 
 class CompareInput(Input):
-    before: str = Field("committed", description="'committed' or a draft id.")
-    after: str = Field(description="A solved draft id (or 'committed').")
+    before: Source = Field("committed", description="'committed' or a draft id.")
+    after: Source = Field(description="A solved draft id (or 'committed').")
 
 
 class CompareOut(View):
@@ -483,8 +520,8 @@ def compare_schedules(ctx: ToolContext, a: CompareInput) -> CompareOut:
 
 
 class CommitInput(Input):
-    draft_id: str
-    approval_token: str
+    draft_id: DraftId
+    approval_token: str = Field(max_length=2000)
 
 
 class CommitOut(View):
@@ -546,7 +583,7 @@ STATUS_MESSAGES = {
 
 
 class RequestCommitInput(Input):
-    draft_id: str
+    draft_id: DraftId
 
 
 class RequestCommitOut(View):
@@ -577,12 +614,19 @@ def request_commit(ctx: ToolContext, a: RequestCommitInput) -> RequestCommitOut:
         ),
         None,
     )
+    if existing is None:
+        pending = sum(1 for r in ctx.store.requests() if ctx.store.request_status(r) == "pending")
+        if pending >= MAX_PENDING_REQUESTS:
+            raise ToolError(
+                f"{pending} approval requests are already waiting for a human, which is the limit. "
+                "Ask the planner to approve or deny some before requesting another."
+            )
     request = existing or ctx.store.add_request(draft, digest)
     return RequestCommitOut(request_id=request.id, draft_id=draft.id, status="pending", message=REQUEST_MESSAGE)
 
 
 class ApprovalStatusInput(Input):
-    request_id: str
+    request_id: RequestId
 
 
 class ApprovalStatusOut(View):

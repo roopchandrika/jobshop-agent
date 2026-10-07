@@ -32,6 +32,7 @@ from jobshop.tools.approval import ApprovalAuthority
 from jobshop.tools.errors import ToolError
 from jobshop.tools.functions import ToolContext
 from jobshop.tools.store import Store
+from jobshop.tools.text import terminal_safe
 from jobshop.tools.views import KPIView
 
 
@@ -186,11 +187,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, out: Callable[[str], None] = print, ask: Callable[[str], str] = input) -> int:
     args = build_parser().parse_args(argv)
+
+    def safe_out(text: str) -> None:  # same reason as in the chat CLI: nothing can redraw the review screen
+        out(terminal_safe(text))
+
     args.state = args.state or state_path_from_env(os.environ)
     if args.command != "init" and not args.state.exists():
-        out(f"No state at {args.state}. Run `init` first.")
+        safe_out(f"No state at {args.state}. Run `init` first.")
         return 2
-    return args.func(args, out, ask)
+    return args.func(args, safe_out, ask)
 
 
 if __name__ == "__main__":

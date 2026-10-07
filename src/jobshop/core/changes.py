@@ -13,6 +13,9 @@ from __future__ import annotations
 from jobshop.core.models import Instance, Operation, Order, TimeWindow
 
 
+MAX_DUE_AHEAD_MIN = 365 * 24 * 60  # a typo like year 2062 should be an error, not a huge due date
+
+
 class ChangeError(ValueError):
     """The requested change is invalid (unknown id, bad window, ...). Message is user-facing."""
 
@@ -35,6 +38,16 @@ def add_downtime(
             f"which is not after the current time {instance.to_datetime(instance.now):%Y-%m-%d %H:%M}"
         )
 
+    # Judge the effective start (the past is clipped to now below): once the clock is past the end
+    # of the plan, no outage can matter, and clipping both ends would leave an empty window.
+    horizon = instance.horizon
+    if max(start, instance.now) >= horizon:
+        raise ChangeError(
+            f"downtime would start at {instance.to_datetime(max(start, instance.now)):%Y-%m-%d %H:%M}, "
+            f"at or after the end of the plan ({instance.to_datetime(horizon):%Y-%m-%d %H:%M}); "
+            "nothing is scheduled then. Check the date."
+        )
+
     notes: list[str] = []
     if start < instance.now:
         notes.append(
@@ -42,6 +55,9 @@ def add_downtime(
             f"{instance.to_datetime(instance.now):%H:%M} (the past cannot change)"
         )
         start = instance.now
+    if end > horizon:
+        notes.append(f"end clipped to the end of the plan, {instance.to_datetime(horizon):%Y-%m-%d %H:%M}")
+        end = horizon
 
     data = instance.model_dump()
     for machine in data["machines"]:
@@ -82,6 +98,8 @@ def add_rush_order(
         raise ChangeError(f"order '{order_id}' already exists")
     if due <= instance.now:
         raise ChangeError("due time must be after the current time")
+    if due - instance.now > MAX_DUE_AHEAD_MIN:
+        raise ChangeError("due time is more than a year ahead; check the date")
     if not 1 <= priority <= 5:
         raise ChangeError("priority must be between 1 (lowest) and 5 (most urgent)")
 

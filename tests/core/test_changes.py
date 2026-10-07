@@ -40,6 +40,24 @@ def test_downtime_entirely_in_the_past_is_rejected(inst):
         changes.add_downtime(at_100, "M1", 20, 100)
 
 
+def test_downtime_running_past_the_end_of_the_plan_is_clipped_to_it(inst):
+    assert inst.horizon == 1000
+    new, notes = changes.add_downtime(inst, "M1", 900, 5_000_000)
+    assert [(w.start, w.end) for w in new.machine("M1").downtime] == [(900, 1000)]
+    assert len(notes) == 1 and "end clipped" in notes[0]
+
+
+@pytest.mark.parametrize("now, start, end", [
+    (0, 1000, 1100),     # starts exactly when the plan ends
+    (0, 5_000, 6_000),   # a typo'd date far in the future
+    (1100, 900, 1500),   # the clock is already past the end: clipping both ends would be empty
+])
+def test_downtime_that_could_never_matter_is_rejected_with_a_clear_message(inst, now, start, end):
+    at_now = inst.model_validate({**inst.model_dump(), "now": now})
+    with pytest.raises(ChangeError, match="end of the plan"):
+        changes.add_downtime(at_now, "M1", start, end)
+
+
 @pytest.mark.parametrize("machine_id, start, end, message", [
     ("M9", 10, 20, "unknown machine"),
     ("M1", 20, 20, "must end after it starts"),
@@ -92,6 +110,7 @@ def test_next_rush_id_skips_taken_ids(inst):
     (dict(order_id="A", family="bracket", due=300), "already exists"),
     (dict(order_id="RUSH-1", family="bracket", due=0), "after the current time"),
     (dict(order_id="RUSH-1", family="bracket", due=300, priority=9), "between 1"),
+    (dict(order_id="RUSH-1", family="bracket", due=366 * 24 * 60), "more than a year ahead"),
 ])
 def test_invalid_rush_orders_are_rejected(inst, kwargs, message):
     with pytest.raises(ChangeError, match=message):

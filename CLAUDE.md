@@ -73,6 +73,12 @@ the Phase 0 review and take precedence over the spec where they differ.
 - MCP exposes no commit tool. It offers `request_commit`, and a human approves
   out-of-band with `admin approve`. Elicitation exists in the MCP SDK but is not used: whether
   Claude Desktop/Code support it could not be verified, and out-of-band works with any client.
+- Phase 4 safety (see `docs/SAFETY.md`): tool arguments are strict (`functions.py`: `PlantTime`, `Ident`,
+  `DraftId`, `Priority`, `StrictBool`); free text going to a model or a terminal is cleaned by `tools/text.py`
+  (hygiene only, not an injection defense); `changes_made` in the final answer is copied from the draft,
+  the model cannot supply it; blast-radius caps live in `tools/store.py` (drafts, changes, pending requests)
+  and `core/changes.py` (outages clipped to the plan, due dates within a year). Both CLIs print through
+  `terminal_safe`. Keep new model-bound free text going through `untrusted_text`.
 - The Anthropic client is injected into the agent loop so tests can use a scripted
   fake. The final answer is a terminal tool call with a Pydantic schema; the
   harness fills `kpi_before`/`kpi_after` from tool results and computes
@@ -92,12 +98,14 @@ the Phase 0 review and take precedence over the spec where they differ.
 src/jobshop/core/    models, intervals, generator, solver, validator, kpis,
                      changes (draft edits), reschedule (frozen/interrupted rules)
 src/jobshop/tools/   store (in-memory or shared JSON file), approval, views, functions,
-                     registry, outcome, human (HUMAN-ONLY approve/deny)   (no LLM imports)
+                     registry, outcome, text (cleaning), human (HUMAN-ONLY approve/deny)   (no LLM imports)
 src/jobshop/agent/   loop (hand-written tool-use loop), prompts, trace (JSONL), cli
 src/jobshop/mcp_server/  server (stdio MCP server), admin (init/status/approve/deny/clock CLI)
 tests/core|tools|agent|mcp/   tests/helpers.py = tiny builders; tests/fake_llm.py = scripted
                           fake client that returns real anthropic Message objects
 docs/MCP.md          how to connect Claude Desktop / Claude Code (what is and isn't verified)
+docs/SAFETY.md       threat model: layers, what is tested, residual risks
+tests/injection.py   shared poisoned-note scenario + checker (scripted and live tests use the same one)
 ```
 - MCP server: `python -m jobshop.mcp_server` (launched by a client, never run by hand). Needs
   state first: `uv run python -m jobshop.mcp_server.admin init`. Humans approve with
@@ -110,7 +118,8 @@ docs/MCP.md          how to connect Claude Desktop / Claude Code (what is and is
   back only if changed; an exception writes nothing). Never hold the lock while waiting on a
   human (see `admin approve`). `tools/human.py` must never be registered as tools.
 - Install: `uv sync`. All tests: `uv run pytest` (about 60 s, includes one ~10 s `slow` test).
-  Fast loop: `uv run pytest -m "not slow"`.
+  Fast loop: `uv run pytest -m "not slow"`. Real-model injection test (calls the API, opt-in):
+  `JOBSHOP_RUN_LIVE=1 uv run pytest tests/agent/test_live_injection.py -v -s`.
 - Run the agent: copy `.env.example` to `.env`, set `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`,
   then `uv run python -m jobshop.agent.cli --now "2026-01-05 12:00"`. Traces go to `logs/traces/`.
 - Tool outputs come from `tools/views.py` only: display-ready numbers and plant-local times.
