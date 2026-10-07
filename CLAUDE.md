@@ -80,4 +80,16 @@ the Phase 0 review and take precedence over the spec where they differ.
 **Non-goals:** setup times, workers/labor, preemption, buffers, auth, multi-user.
 
 ## Layout, commands, conventions
-Filled in as the repo takes shape (Phase 1 onward). Nothing is runnable yet.
+```
+src/jobshop/core/   models, intervals, generator, solver, validator, kpis   (Phase 1)
+tests/core/         one test file per module; tests/helpers.py has tiny builders
+```
+- Install: `uv sync`. All tests: `uv run pytest` (includes one ~10 s `slow` test).
+  Fast loop: `uv run pytest -m "not slow"` (about 2 s).
+- Models are frozen and forbid unknown fields. `model_copy(update=...)` skips
+  validation, so build changed copies with `Model.model_validate({...})`.
+- `core/validator.py` must stay independent: it never imports the solver or
+  `intervals`, and never trusts `solve_info`. Keep it that way.
+- Solver tests use `tests.helpers.FAST` (1 worker, fixed seed). Don't assert exact
+  schedules from multi-worker solves; assert validity and KPIs.
+- All times are integer minutes from `Instance.t0`; intervals are half-open.
