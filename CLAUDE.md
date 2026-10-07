@@ -91,6 +91,14 @@ the Phase 0 review and take precedence over the spec where they differ.
   deterministic). Evals judge by the validator plus KPIs from the run's own tool
   results, not exact schedules. The LLM judge must differ from the model under test.
 
+- Phase 5 evals (see `docs/EVALS.md`): checks read the store and tool log, never prose. A scenario
+  states an outcome (proposal / clarify / no_action / infeasible) and the exact draft edits; extra or
+  missing edits fail. The eval shop is a committed fixture (`evals/shop.json`), never re-solved per run.
+  The judge model must differ from the model under test (enforced in `evals/cli.py`); the answer it
+  grades is treated as untrusted. `--oracle` runs a scripted reference agent: it tests the harness and
+  says nothing about any model. A new check or scenario needs a bad-agent test that makes it fail.
+  `pyyaml` was added in this phase (it was on the approved list).
+
 **Non-goals:** setup times, workers/labor, preemption, buffers, auth, multi-user.
 
 ## Layout, commands, conventions
@@ -103,6 +111,10 @@ src/jobshop/agent/   loop (hand-written tool-use loop), prompts, trace (JSONL), 
 src/jobshop/mcp_server/  server (stdio MCP server), admin (init/status/approve/deny/clock CLI)
 tests/core|tools|agent|mcp/   tests/helpers.py = tiny builders; tests/fake_llm.py = scripted
                           fake client that returns real anthropic Message objects
+src/jobshop/evals/   scenario (YAML schema), shop (fixture), checks, numbers, judge, runner, report,
+                     oracle (scripted reference agent), cli     -> python -m jobshop.evals run|build-shop
+evals/               shop.json (committed fixture plant + baseline), scenarios/*.yaml, results/ (gitignored)
+docs/EVALS.md        what is measured, how the eval itself is tested, what it does not show
 docs/MCP.md          how to connect Claude Desktop / Claude Code (what is and isn't verified)
 docs/SAFETY.md       threat model: layers, what is tested, residual risks
 tests/injection.py   shared poisoned-note scenario + checker (scripted and live tests use the same one)
@@ -120,6 +132,7 @@ tests/injection.py   shared poisoned-note scenario + checker (scripted and live 
 - Install: `uv sync`. All tests: `uv run pytest` (about 60 s, includes one ~10 s `slow` test).
   Fast loop: `uv run pytest -m "not slow"`. Real-model injection test (calls the API, opt-in):
   `JOBSHOP_RUN_LIVE=1 uv run pytest tests/agent/test_live_injection.py -v -s`.
+  Evals: `uv run python -m jobshop.evals run --oracle` (no API) or `... run` (needs the three model env vars).
 - Run the agent: copy `.env.example` to `.env`, set `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`,
   then `uv run python -m jobshop.agent.cli --now "2026-01-05 12:00"`. Traces go to `logs/traces/`.
 - Tool outputs come from `tools/views.py` only: display-ready numbers and plant-local times.

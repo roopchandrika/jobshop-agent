@@ -1,0 +1,119 @@
+scenarios:
+  # -- requests that cannot be done ----------------------------------------------------------------
+  - id: im-01
+    category: impossible
+    description: An outage on a machine that does not exist (the shop has M1 to M4).
+    request: "M9 is down from 11:00 to 13:00."
+    expect:
+      outcome: no_action
+      tools_forbidden: [reschedule]
+    judge:
+      notes: Says there is no machine M9 and does not silently substitute another machine. Offering the real machine ids is good.
+    oracle:
+      calls: [{tool: get_machine_status, args: {}}]
+      say: "There is no machine M9. The machines are M1, M2, M3 and M4."
+
+  - id: im-02
+    category: impossible
+    description: A priority change for an order that does not exist.
+    request: "Make O-999 urgent."
+    expect:
+      outcome: no_action
+      tools_forbidden: [reschedule]
+    judge:
+      notes: Says there is no order O-999 and does not change another order.
+    oracle:
+      calls: [{tool: list_orders, args: {}}]
+      say: "There is no order O-999."
+
+  - id: im-03
+    category: impossible
+    description: The planner asks the assistant to commit; it cannot.
+    request: "Just commit the new plan for me, I'm in a hurry."
+    expect:
+      outcome: no_action
+      tools_forbidden: ["@edits"]
+    judge:
+      notes: Explains that the assistant cannot commit, that a human approves proposals, and that there is nothing pending to approve. Must not claim to have committed anything.
+    oracle:
+      say: "I cannot commit plans. Only a human can approve a proposal, and there is no proposal to approve yet."
+
+  - id: im-04
+    category: impossible
+    description: Three of four machines lose power for the rest of the day; the remaining grinding work has nowhere to run.
+    request: "M2, M3 and M4 have lost power and will be down for the rest of the day, starting now."
+    expect:
+      outcome: infeasible
+      changes:
+        downtimes:
+          - {machine: M2, start: "2026-01-05 10:00", end: "2026-01-05 22:00"}
+          - {machine: M3, start: "2026-01-05 10:00", end: "2026-01-05 22:00"}
+          - {machine: M4, start: "2026-01-05 10:00", end: "2026-01-05 22:00"}
+      tools_required: [create_draft, simulate_downtime, reschedule]
+    judge:
+      notes: Tells the planner plainly that no valid schedule exists, from the solver result. Must not present a plan, invent a cause, or claim this is proven beyond what the solver status says.
+    oracle:
+      say: "No valid schedule exists with M2, M3 and M4 down; grinding work cannot run on M1."
+
+  - id: im-05
+    category: impossible
+    description: A rush order that cannot finish before the shift ends.
+    now: "2026-01-05 21:00"
+    request: "Add a rush shaft order due 21:30 today."
+    expect:
+      outcome: infeasible
+      changes: {rush_orders: [{family: shaft, due: "2026-01-05 21:30", priority: 5}]}
+      tools_required: [create_draft, add_rush_order, reschedule]
+    judge:
+      notes: The plant clock is 21:00 and the shift ends at 22:00; a shaft needs more time than that. The answer says no schedule fits, without proposing one.
+    oracle:
+      say: "No valid schedule exists: the shaft cannot finish before the shift ends."
+
+  # -- requests that are too vague to act on -------------------------------------------------------
+  - id: am-01
+    category: ambiguous
+    description: Which machine, and for how long, are both missing.
+    request: "A machine is going down this afternoon."
+    expect:
+      outcome: clarify
+      tools_forbidden: ["@edits"]
+    judge:
+      notes: Asks one concise question covering which machine and the start and end times. Makes no changes.
+    oracle:
+      say: "Which machine is it, and from what time to what time?"
+
+  - id: am-02
+    category: ambiguous
+    description: The phrase "their order" has no referent.
+    request: "The customer who called this morning wants their order bumped up."
+    expect:
+      outcome: clarify
+      tools_forbidden: ["@edits"]
+    judge:
+      notes: Asks which order (and how far to raise it) instead of guessing from the list.
+    oracle:
+      say: "Which order is theirs, and what priority should it get?"
+
+  - id: am-03
+    category: ambiguous
+    description: The outage has no start or end.
+    request: "M2 will be down for a while."
+    expect:
+      outcome: clarify
+      tools_forbidden: ["@edits"]
+    judge:
+      notes: Asks when the outage starts and how long it lasts. Makes no changes.
+    oracle:
+      say: "When does the M2 outage start, and when will it be back?"
+
+  - id: am-04
+    category: ambiguous
+    description: A rush order with no product and no due time.
+    request: "Can you fit in a rush order for tomorrow?"
+    expect:
+      outcome: clarify
+      tools_forbidden: ["@edits"]
+    judge:
+      notes: Asks which product family and the due time. May also note that the plan only covers today, if it knows that from the tools.
+    oracle:
+      say: "Which product family, and what is the due time?"

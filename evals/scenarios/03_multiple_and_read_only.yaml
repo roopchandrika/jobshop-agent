@@ -1,0 +1,100 @@
+scenarios:
+  - id: md-01
+    category: multiple_disruptions
+    description: An outage and a priority change in one message; both belong in ONE draft and one solve.
+    request: "M1 is down from 12:00 to 15:00 and O-110 just became urgent."
+    expect:
+      outcome: proposal
+      changes:
+        downtimes: [{machine: M1, start: "2026-01-05 12:00", end: "2026-01-05 15:00"}]
+        priorities: {O-110: 5}
+      tools_required: [create_draft, simulate_downtime, change_priority, reschedule, compare_schedules]
+      max_calls: {reschedule: 1, create_draft: 1}
+    judge:
+      notes: Covers the combined effect of both changes, not just one.
+
+  - id: md-02
+    category: multiple_disruptions
+    description: Two outages on different machines at different times.
+    request: "M2 will be down from 11:00 to 13:00, and M3 from 14:00 to 16:00."
+    expect:
+      outcome: proposal
+      changes:
+        downtimes:
+          - {machine: M2, start: "2026-01-05 11:00", end: "2026-01-05 13:00"}
+          - {machine: M3, start: "2026-01-05 14:00", end: "2026-01-05 16:00"}
+      tools_required: [create_draft, simulate_downtime, reschedule, compare_schedules]
+      max_calls: {reschedule: 1, create_draft: 1}
+    judge:
+      notes: Both outages are in the same draft; the answer gives one combined result.
+
+  - id: md-03
+    category: multiple_disruptions
+    description: A rush order and an outage together.
+    request: "We got a rush bracket order due 15:00 today, and M4 is going down from 12:00 to 14:00."
+    expect:
+      outcome: proposal
+      changes:
+        downtimes: [{machine: M4, start: "2026-01-05 12:00", end: "2026-01-05 14:00"}]
+        rush_orders: [{family: bracket, due: "2026-01-05 15:00", priority: 5}]
+      tools_required: [create_draft, simulate_downtime, add_rush_order, reschedule, compare_schedules]
+      max_calls: {reschedule: 1, create_draft: 1}
+    judge:
+      notes: Says whether the rush order can still make 15:00 despite the outage.
+
+  - id: md-04
+    category: multiple_disruptions
+    description: All three kinds of change at once.
+    request: "Three things: M1 is down 13:00-15:00, O-104 should be priority 5, and add a rush gear order due 19:00."
+    expect:
+      outcome: proposal
+      changes:
+        downtimes: [{machine: M1, start: "2026-01-05 13:00", end: "2026-01-05 15:00"}]
+        priorities: {O-104: 5}
+        rush_orders: [{family: gear, due: "2026-01-05 19:00", priority: 5}]
+      tools_required: [create_draft, simulate_downtime, change_priority, add_rush_order, reschedule, compare_schedules]
+      max_calls: {reschedule: 1, create_draft: 1}
+    judge:
+      notes: Reports one combined result. The rush order's priority was not specified; "rush" means top priority.
+
+  - id: q-01
+    category: read_only
+    description: A question about the live plan; nothing should be changed or solved.
+    request: "Which orders are late in the current plan?"
+    expect:
+      outcome: no_action
+      tools_any: [[list_orders, get_schedule]]
+      tools_forbidden: ["@edits"]
+    judge:
+      notes: Answers from the live plan's data. The baseline has no late orders, and the answer should say so rather than guess.
+    oracle:
+      calls: [{tool: list_orders, args: {late_only: true}}]
+      say: "No orders are late in the live plan."
+
+  - id: q-02
+    category: read_only
+    description: A question about one machine.
+    request: "How busy is machine M2 and is it available all day?"
+    expect:
+      outcome: no_action
+      tools_any: [[get_machine_status, get_schedule]]
+      tools_forbidden: ["@edits"]
+    judge:
+      notes: Reports M2's utilization and open windows from the tools, and mentions any outage if there is one.
+    oracle:
+      calls: [{tool: get_machine_status, args: {machine_id: M2}}]
+      say: "M2 is open for its normal shift window; see the status above for utilization."
+
+  - id: q-03
+    category: read_only
+    description: A question about one order's completion time.
+    request: "When does O-105 finish, and is it on time?"
+    expect:
+      outcome: no_action
+      tools_any: [[get_order, list_orders, get_schedule]]
+      tools_forbidden: ["@edits"]
+    judge:
+      notes: Gives O-105's completion and due time from the tools and says whether it is on time.
+    oracle:
+      calls: [{tool: get_order, args: {order_id: O-105}}]
+      say: "O-105 finishes before its due time."

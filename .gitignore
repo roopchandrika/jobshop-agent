@@ -20,3 +20,7 @@ docs/SPEC.md
 
 # Per-session JSONL traces
 logs/
+
+# Eval run output (regenerate with `python -m jobshop.evals run`); the folder itself stays
+evals/results/*
+!evals/results/.gitkeep

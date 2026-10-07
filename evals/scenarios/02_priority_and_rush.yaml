@@ -1,0 +1,72 @@
+scenarios:
+  - id: pc-01
+    category: priority_change
+    description: The word urgent, for an existing order, means the highest priority.
+    request: "Order O-103 is now urgent."
+    expect:
+      outcome: proposal
+      changes: {priorities: {O-103: 5}}
+      tools_required: [create_draft, change_priority, reschedule, compare_schedules]
+      max_calls: {reschedule: 1}
+    judge:
+      notes: States what the priority change does to lateness, using the comparison.
+
+  - id: pc-02
+    category: priority_change
+    description: Lowering a priority to the minimum.
+    request: "The customer lost interest in O-105. Drop it to the lowest priority."
+    expect:
+      outcome: proposal
+      changes: {priorities: {O-105: 1}}
+      tools_required: [create_draft, change_priority, reschedule, compare_schedules]
+      max_calls: {reschedule: 1}
+    judge:
+      notes: Lowering a priority can make that order later; the answer says whether it did.
+
+  - id: pc-03
+    category: priority_change
+    description: An explicit numeric priority.
+    request: "Raise O-102 to priority 4."
+    expect:
+      outcome: proposal
+      changes: {priorities: {O-102: 4}}
+      tools_required: [create_draft, change_priority, reschedule, compare_schedules]
+      max_calls: {reschedule: 1}
+    judge:
+      notes: Uses exactly the priority requested, not "urgent".
+
+  - id: ro-01
+    category: rush_order
+    description: A rush order with the family and due time given; "rush" means top priority.
+    request: "Add a rush gear order due today at 18:00."
+    expect:
+      outcome: proposal
+      changes: {rush_orders: [{family: gear, due: "2026-01-05 18:00", priority: 5}]}
+      tools_required: [create_draft, add_rush_order, reschedule, compare_schedules]
+      max_calls: {reschedule: 1}
+    judge:
+      notes: Reports whether the new order meets its due time and what it displaces.
+
+  - id: ro-02
+    category: rush_order
+    description: A rush order with an explicit, non-maximum priority.
+    request: "A customer needs a bracket by 16:00 today. Make it priority 4."
+    expect:
+      outcome: proposal
+      changes: {rush_orders: [{family: bracket, due: "2026-01-05 16:00", priority: 4}]}
+      tools_required: [create_draft, add_rush_order, reschedule, compare_schedules]
+      max_calls: {reschedule: 1}
+    judge:
+      notes: Uses priority 4 as asked.
+
+  - id: ro-03
+    category: rush_order
+    description: A rush order phrased informally.
+    request: "Squeeze in a rush housing order due 17:30 today."
+    expect:
+      outcome: proposal
+      changes: {rush_orders: [{family: housing, due: "2026-01-05 17:30", priority: 5}]}
+      tools_required: [create_draft, add_rush_order, reschedule, compare_schedules]
+      max_calls: {reschedule: 1}
+    judge:
+      notes: Reports the effect on other orders.

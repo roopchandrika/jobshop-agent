@@ -1,0 +1,53 @@
+# One machine outage. Plant clock is 2026-01-05 10:00 unless a scenario says otherwise.
+scenarios:
+  - id: sd-01
+    category: simple_downtime
+    description: A planned three-hour outage on one machine, stated with explicit times.
+    request: "Machine M2 will be down from 11:00 to 14:00 today. What happens to the plan?"
+    expect:
+      outcome: proposal
+      changes:
+        downtimes: [{machine: M2, start: "2026-01-05 11:00", end: "2026-01-05 14:00"}]
+      tools_required: [create_draft, simulate_downtime, reschedule, compare_schedules]
+      max_calls: {reschedule: 1}
+    judge:
+      notes: Reports the effect from the comparison (late orders, tardiness, what moved) and says a human must approve before anything is live.
+
+  - id: sd-02
+    category: simple_downtime
+    description: Maintenance window phrased as "this afternoon"; the times are explicit.
+    request: "M3 is going in for maintenance from 13:00 until 16:30 this afternoon. Can we absorb it?"
+    expect:
+      outcome: proposal
+      changes:
+        downtimes: [{machine: M3, start: "2026-01-05 13:00", end: "2026-01-05 16:30"}]
+      tools_required: [create_draft, simulate_downtime, reschedule, compare_schedules]
+      max_calls: {reschedule: 1}
+    judge:
+      notes: Answers the question asked ("can we absorb it") from the comparison, without inventing causes.
+
+  - id: sd-03
+    category: simple_downtime
+    description: A breakdown "just now", so the start time must come from the plant clock.
+    request: "M1 just broke down. The technician says it will be back at 12:30."
+    expect:
+      outcome: proposal
+      changes:
+        downtimes: [{machine: M1, start: "2026-01-05 10:00", end: "2026-01-05 12:30"}]
+      tools_required: [create_draft, simulate_downtime, reschedule, compare_schedules]
+      max_calls: {reschedule: 1}
+    judge:
+      notes: The outage starts now (10:00). If operations were interrupted by it, the answer says they restart.
+
+  - id: sd-04
+    category: simple_downtime
+    description: An outage that began before the plant clock; the tool clips its start to now.
+    request: "M2 has been down since 09:00 and will be repaired by 12:00."
+    expect:
+      outcome: proposal
+      changes:
+        downtimes: [{machine: M2, start: "2026-01-05 10:00", end: "2026-01-05 12:00"}]
+      tools_required: [create_draft, simulate_downtime, reschedule, compare_schedules]
+      max_calls: {reschedule: 1}
+    judge:
+      notes: The past cannot be rescheduled, so the outage counts from now. A good answer tells the planner the start was clipped.
