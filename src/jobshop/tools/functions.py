@@ -520,3 +520,86 @@ def commit_schedule(ctx: ToolContext, a: CommitInput) -> CommitOut:
         new_version=new.version,
         kpis=views.kpi_view(new.instance, compute_kpis(new.instance, new.schedule)),
     )
+
+
+# --------------------------------------------------------------------------------------------
+# Approval requests (the MCP route: the model asks, a human decides somewhere else)
+# --------------------------------------------------------------------------------------------
+
+REQUEST_MESSAGE = (
+    "Approval requested. NOTHING HAS BEEN COMMITTED: the live plan changes only after a human "
+    "reviews and approves this request outside this chat (for example by running "
+    "`uv run python -m jobshop.mcp_server.admin approve`). Tell the planner this, and do not "
+    "describe the change as live."
+)
+
+STATUS_MESSAGES = {
+    "pending": "Waiting for a human to approve. Nothing is committed yet.",
+    "approved": "A human approved this request and the draft was committed as the live plan.",
+    "denied": "A human declined this request. The live plan is unchanged.",
+    "expired": "This request is too old to approve. If the change is still wanted, request approval again.",
+    "stale": (
+        "The live plan or clock changed after this request was made, so it can no longer be "
+        "approved. Create a new draft and request approval again if the change is still wanted."
+    ),
+}
+
+
+class RequestCommitInput(Input):
+    draft_id: str
+
+
+class RequestCommitOut(View):
+    request_id: str
+    draft_id: str
+    status: str
+    message: str
+
+
+def request_commit(ctx: ToolContext, a: RequestCommitInput) -> RequestCommitOut:
+    """Record that a human should review this draft. It commits nothing and mints no token."""
+    draft = _live_draft(ctx, a.draft_id)
+    if not draft.solved or draft.schedule is None:
+        raise ToolError(f"draft {draft.id} has no solved schedule. Call reschedule first.")
+    if not draft.changes:
+        raise ToolError(f"draft {draft.id} has no changes, so there is nothing to commit.")
+
+    plan = plan_reschedule(draft.instance, ctx.store.committed.schedule)
+    report = validate_schedule(draft.instance, draft.schedule, plan.frozen)
+    if not report.ok:
+        raise ToolError(f"refusing to request approval for an invalid schedule ({report.violations[0].message})")
+
+    digest = schedule_digest(draft.schedule)
+    existing = next(
+        (
+            r for r in ctx.store.requests()
+            if r.draft_id == draft.id and r.schedule_digest == digest and ctx.store.request_status(r) == "pending"
+        ),
+        None,
+    )
+    request = existing or ctx.store.add_request(draft, digest)
+    return RequestCommitOut(request_id=request.id, draft_id=draft.id, status="pending", message=REQUEST_MESSAGE)
+
+
+class ApprovalStatusInput(Input):
+    request_id: str
+
+
+class ApprovalStatusOut(View):
+    request_id: str
+    draft_id: str
+    status: str  # pending, approved, denied, expired or stale
+    live_plan_version: int
+    message: str
+
+
+def get_approval_status(ctx: ToolContext, a: ApprovalStatusInput) -> ApprovalStatusOut:
+    request = ctx.store.request(a.request_id)
+    status = ctx.store.request_status(request)
+    return ApprovalStatusOut(
+        request_id=request.id,
+        draft_id=request.draft_id,
+        status=status,
+        live_plan_version=ctx.store.committed.version,
+        message=STATUS_MESSAGES[status],
+    )

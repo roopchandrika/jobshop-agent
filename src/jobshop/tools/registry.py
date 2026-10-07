@@ -28,6 +28,8 @@ class Tool:
     input_model: type[BaseModel]
     fn: Callable[[f.ToolContext, Any], BaseModel]
     model_visible: bool = True
+    # Which front ends offer this tool: the chat agent ("agent") and/or the MCP server ("mcp").
+    surfaces: tuple[str, ...] = ("agent", "mcp")
 
 
 TOOLS: list[Tool] = [
@@ -111,6 +113,21 @@ TOOLS: list[Tool] = [
         f.CompareInput, f.compare_schedules,
     ),
     Tool(
+        "request_commit",
+        "Ask a human to review and approve a solved draft. This does NOT commit anything and you "
+        "cannot commit: a person must approve outside this chat. Use it only after you have shown "
+        "the planner the comparison and they want the change. Afterwards tell them a human "
+        "approval is pending; never say the change is live.",
+        f.RequestCommitInput, f.request_commit,
+        surfaces=("mcp",),
+    ),
+    Tool(
+        "get_approval_status",
+        "Check whether a human has approved, declined, or not yet decided an approval request.",
+        f.ApprovalStatusInput, f.get_approval_status,
+        surfaces=("mcp",),
+    ),
+    Tool(
         "commit_schedule",
         "Commit a draft as the live schedule. Requires a human approval token.",
         f.CommitInput, f.commit_schedule,
@@ -120,12 +137,18 @@ TOOLS: list[Tool] = [
 
 
 class ToolRegistry:
-    def __init__(self, ctx: f.ToolContext, tools: list[Tool] | None = None) -> None:
+    def __init__(
+        self, ctx: f.ToolContext, tools: list[Tool] | None = None, surface: str = "agent"
+    ) -> None:
         self.ctx = ctx
+        self.surface = surface
         self._tools = {t.name: t for t in (tools if tools is not None else TOOLS)}
 
+    def _usable(self, tool: Tool, allow_hidden: bool = False) -> bool:
+        return self.surface in tool.surfaces and (tool.model_visible or allow_hidden)
+
     def names(self, *, visible_only: bool = True) -> list[str]:
-        return [t.name for t in self._tools.values() if t.model_visible or not visible_only]
+        return [t.name for t in self._tools.values() if self._usable(t, allow_hidden=not visible_only)]
 
     def api_specs(self) -> list[dict[str, Any]]:
         """Tool definitions to advertise to the model (visible tools only)."""
@@ -136,12 +159,12 @@ class ToolRegistry:
                 "input_schema": t.input_model.model_json_schema(),
             }
             for t in self._tools.values()
-            if t.model_visible
+            if self._usable(t)
         ]
 
     def call(self, name: str, arguments: Any, *, allow_hidden: bool = False) -> dict[str, Any]:
         tool = self._tools.get(name)
-        if tool is None or (not tool.model_visible and not allow_hidden):
+        if tool is None or not self._usable(tool, allow_hidden):
             raise ToolError(f"unknown tool '{name}'. Available tools: {', '.join(self.names())}")
         if not isinstance(arguments, dict):
             raise ToolError(f"arguments for {name} must be a JSON object")

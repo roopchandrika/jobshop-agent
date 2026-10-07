@@ -90,8 +90,9 @@ def build_ctx(settings=SMALL, clock=None, instance=None):
     """A ToolContext over a small, already-solved committed plan (version 1, now = 0)."""
     inst = instance if instance is not None else generate_instance(settings)
     baseline = solve(inst, config=FAST)
+    clock = clock or FakeClock()  # one clock for tokens AND approval requests
     return ToolContext(
-        store=Store(inst, baseline),
-        authority=ApprovalAuthority(secret=b"test-secret", clock=clock or FakeClock()),
+        store=Store(inst, baseline, clock=clock),
+        authority=ApprovalAuthority(secret=b"test-secret", clock=clock),
         solver_config=FAST,
     )

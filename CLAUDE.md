@@ -71,7 +71,8 @@ the Phase 0 review and take precedence over the spec where they differ.
 - Approval token: signed, single-use, expiring, bound to the draft and the
   committed version it was based on.
 - MCP exposes no commit tool. It offers `request_commit`, and a human approves
-  out-of-band. Check whether MCP elicitation is an option in Phase 3.
+  out-of-band with `admin approve`. Elicitation exists in the MCP SDK but is not used: whether
+  Claude Desktop/Code support it could not be verified, and out-of-band works with any client.
 - The Anthropic client is injected into the agent loop so tests can use a scripted
   fake. The final answer is a terminal tool call with a Pydantic schema; the
   harness fills `kpi_before`/`kpi_after` from tool results and computes
@@ -90,12 +91,25 @@ the Phase 0 review and take precedence over the spec where they differ.
 ```
 src/jobshop/core/    models, intervals, generator, solver, validator, kpis,
                      changes (draft edits), reschedule (frozen/interrupted rules)
-src/jobshop/tools/   store, approval, views, functions, registry, outcome  (no LLM imports)
+src/jobshop/tools/   store (in-memory or shared JSON file), approval, views, functions,
+                     registry, outcome, human (HUMAN-ONLY approve/deny)   (no LLM imports)
 src/jobshop/agent/   loop (hand-written tool-use loop), prompts, trace (JSONL), cli
-tests/core|tools|agent/   tests/helpers.py = tiny builders; tests/fake_llm.py = scripted
+src/jobshop/mcp_server/  server (stdio MCP server), admin (init/status/approve/deny/clock CLI)
+tests/core|tools|agent|mcp/   tests/helpers.py = tiny builders; tests/fake_llm.py = scripted
                           fake client that returns real anthropic Message objects
+docs/MCP.md          how to connect Claude Desktop / Claude Code (what is and isn't verified)
 ```
-- Install: `uv sync`. All tests: `uv run pytest` (about 40 s, includes one ~10 s `slow` test).
+- MCP server: `python -m jobshop.mcp_server` (launched by a client, never run by hand). Needs
+  state first: `uv run python -m jobshop.mcp_server.admin init`. Humans approve with
+  `... admin approve`. MCP SDK here is 2.x: handlers are constructor callbacks
+  (`on_list_tools`/`on_call_tool`), fields are snake_case (`is_error`, `input_schema`), and an
+  exception escaping a handler becomes a protocol error, so `ToolService` returns error results.
+- Two front ends, one registry: `ToolRegistry(ctx, surface="agent"|"mcp")`. `request_commit` and
+  `get_approval_status` are MCP-only. `commit_schedule` is on neither surface for models.
+- A file-backed store must be used inside `with store.transaction():` (lock, reload, run, write
+  back only if changed; an exception writes nothing). Never hold the lock while waiting on a
+  human (see `admin approve`). `tools/human.py` must never be registered as tools.
+- Install: `uv sync`. All tests: `uv run pytest` (about 60 s, includes one ~10 s `slow` test).
   Fast loop: `uv run pytest -m "not slow"`.
 - Run the agent: copy `.env.example` to `.env`, set `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`,
   then `uv run python -m jobshop.agent.cli --now "2026-01-05 12:00"`. Traces go to `logs/traces/`.

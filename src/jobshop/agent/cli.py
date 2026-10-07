@@ -27,10 +27,10 @@ from jobshop.core.solver import SolverConfig, solve
 from jobshop.tools import views
 from jobshop.tools.approval import ApprovalAuthority, schedule_digest
 from jobshop.tools.errors import ToolError
+from jobshop.tools.human import kpi_lines
 from jobshop.tools.functions import ToolContext
 from jobshop.tools.registry import ToolRegistry
 from jobshop.tools.store import Store
-from jobshop.tools.views import KPIView
 
 HELP = """Type a request, e.g. "Machine M4 is down from 14:00 to 17:00 today and order O-112 is now urgent."
 Commands:  /state  show the live plan   /clock YYYY-MM-DD HH:MM  advance the shop clock
@@ -80,19 +80,6 @@ def build_context(
     if now is not None:
         store.set_clock(instance.to_minutes(now))
     return ToolContext(store=store, authority=ApprovalAuthority(), solver_config=solver_config)
-
-
-def kpi_lines(before: KPIView, after: KPIView) -> list[str]:
-    rows = [
-        ("late orders", before.late_orders, after.late_orders),
-        ("total tardiness (min)", before.total_tardiness_min, after.total_tardiness_min),
-        ("weighted tardiness", before.weighted_tardiness, after.weighted_tardiness),
-        ("all orders done at", before.all_orders_done_at, after.all_orders_done_at),
-        ("mean utilization (%)", before.mean_utilization_pct, after.mean_utilization_pct),
-    ]
-    lines = [f"  {'':24}{'live plan':>18}{'draft':>18}"]
-    lines += [f"  {name:24}{str(b):>18}{str(a):>18}" for name, b, a in rows]
-    return lines
 
 
 class ChatSession:
