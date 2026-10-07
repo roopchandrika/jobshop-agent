@@ -60,3 +60,38 @@ def assign(op_id, order_id, machine_id, start, end):
 
 def schedule(assignments, status=SolveStatus.OPTIMAL):
     return Schedule(assignments=list(assignments), solve_info=SolveInfo(status=status))
+
+
+# --- tools-layer context --------------------------------------------------------------------
+
+from jobshop.core.generator import GeneratorSettings, generate_instance  # noqa: E402
+from jobshop.core.solver import solve  # noqa: E402
+from jobshop.tools.approval import ApprovalAuthority  # noqa: E402
+from jobshop.tools.functions import ToolContext  # noqa: E402
+from jobshop.tools.store import Store  # noqa: E402
+
+SMALL = GeneratorSettings(seed=1, n_machines=4, n_orders=6, ops_min=2, ops_max=3, n_days=2)
+
+
+class FakeClock:
+    """Controllable time source for approval-token expiry tests."""
+
+    def __init__(self, start=1_000_000.0):
+        self.t = start
+
+    def __call__(self):
+        return self.t
+
+    def advance(self, seconds):
+        self.t += seconds
+
+
+def build_ctx(settings=SMALL, clock=None, instance=None):
+    """A ToolContext over a small, already-solved committed plan (version 1, now = 0)."""
+    inst = instance if instance is not None else generate_instance(settings)
+    baseline = solve(inst, config=FAST)
+    return ToolContext(
+        store=Store(inst, baseline),
+        authority=ApprovalAuthority(secret=b"test-secret", clock=clock or FakeClock()),
+        solver_config=FAST,
+    )

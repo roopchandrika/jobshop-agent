@@ -81,11 +81,22 @@ the Phase 0 review and take precedence over the spec where they differ.
 
 ## Layout, commands, conventions
 ```
-src/jobshop/core/   models, intervals, generator, solver, validator, kpis   (Phase 1)
-tests/core/         one test file per module; tests/helpers.py has tiny builders
+src/jobshop/core/    models, intervals, generator, solver, validator, kpis,
+                     changes (draft edits), reschedule (frozen/interrupted rules)
+src/jobshop/tools/   store, approval, views, functions, registry, outcome  (no LLM imports)
+src/jobshop/agent/   loop (hand-written tool-use loop), prompts, trace (JSONL), cli
+tests/core|tools|agent/   tests/helpers.py = tiny builders; tests/fake_llm.py = scripted
+                          fake client that returns real anthropic Message objects
 ```
-- Install: `uv sync`. All tests: `uv run pytest` (includes one ~10 s `slow` test).
-  Fast loop: `uv run pytest -m "not slow"` (about 2 s).
+- Install: `uv sync`. All tests: `uv run pytest` (about 40 s, includes one ~10 s `slow` test).
+  Fast loop: `uv run pytest -m "not slow"`.
+- Run the agent: copy `.env.example` to `.env`, set `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`,
+  then `uv run python -m jobshop.agent.cli --now "2026-01-05 12:00"`. Traces go to `logs/traces/`.
+- Tool outputs come from `tools/views.py` only: display-ready numbers and plant-local times.
+  Never return raw floats or minute offsets to the model.
+- `commit_schedule` is registered but `model_visible=False`; only `agent/cli.py` calls it
+  (with `allow_hidden=True`). Tests mutate these guards on purpose; keep them covered.
+- This SDK version uses `httpx2`, not `httpx` (matters when building SDK error objects in tests).
 - Models are frozen and forbid unknown fields. `model_copy(update=...)` skips
   validation, so build changed copies with `Model.model_validate({...})`.
 - `core/validator.py` must stay independent: it never imports the solver or

@@ -4,8 +4,10 @@ version = "0.1.0"
 description = "LLM agent that helps planners handle job-shop disruptions by calling a CP-SAT scheduler as tools (portfolio project, synthetic data only)"
 requires-python = ">=3.11"
 dependencies = [
+    "anthropic>=1.12.0",
     "ortools>=9.15.6755",
     "pydantic>=2.13.5",
+    "python-dotenv>=1.2.4",
 ]
 
 [dependency-groups]

@@ -17,3 +17,6 @@ Thumbs.db
 
 # Owner-reference copy of the original spec (kept locally, not committed)
 docs/SPEC.md
+
+# Per-session JSONL traces
+logs/

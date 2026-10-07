@@ -171,3 +171,42 @@ def test_default_size_instance_returns_a_valid_schedule():
     kpis = compute_kpis(inst, sched)
     assert sched.solve_info.reported_weighted_tardiness == kpis.weighted_tardiness
     assert sched.solve_info.reported_makespan == kpis.makespan
+
+
+# --- warm start -------------------------------------------------------------------------------
+
+
+def _small_instance(seed=2):
+    return generate_instance(GeneratorSettings(seed=seed, n_machines=4, n_orders=6, ops_min=2, ops_max=3, n_days=2))
+
+
+def test_warm_start_from_an_optimal_schedule_gives_an_equally_good_valid_schedule():
+    inst = _small_instance()
+    first = solve(inst, config=FAST)
+    again = solve(inst, config=FAST, hint=first)
+    assert validate_schedule(inst, again).ok
+    assert again.solve_info.reported_weighted_tardiness == first.solve_info.reported_weighted_tardiness
+    assert again.solve_info.reported_makespan == first.solve_info.reported_makespan
+
+
+def test_hint_never_forces_the_answer_when_it_is_no_longer_valid():
+    # The hint puts every operation at start 0 on one machine: wildly infeasible. The solver
+    # must ignore the bad parts and still return a correct schedule.
+    inst = _small_instance()
+    first = solve(inst, config=FAST)
+    bad = first.model_copy(update={"assignments": [
+        a.model_copy(update={"start": 0, "end": a.end - a.start, "machine_id": "M1"})
+        for a in first.assignments
+    ]})
+    sched = solve(inst, config=FAST, hint=bad)
+    assert validate_schedule(inst, sched).ok
+
+
+def test_hint_entries_for_unknown_operations_or_out_of_range_starts_are_ignored():
+    inst = _small_instance()
+    first = solve(inst, config=FAST)
+    junk = first.model_copy(update={"assignments": first.assignments + [
+        assign("NOPE-op1", "NOPE", "M1", 0, 10),
+        first.assignments[0].model_copy(update={"start": 10**6, "end": 10**6 + 5}),
+    ]})
+    assert validate_schedule(inst, solve(inst, config=FAST, hint=junk)).ok

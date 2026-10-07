@@ -56,13 +56,21 @@ class _Built:
     presence: dict[tuple[str, str], cp_model.IntVar]  # (op_id, machine_id) -> chosen?
     weighted_tardiness: cp_model.LinearExpr
     makespan: cp_model.IntVar
+    domains: dict[str, tuple[int, int]]  # op_id -> (earliest start, latest start)
 
 
 def solve(
     instance: Instance,
     frozen: Sequence[Assignment] = (),
     config: SolverConfig = SolverConfig(),
+    hint: Schedule | None = None,
 ) -> Schedule:
+    """Solve ``instance``. ``hint`` (typically the committed schedule) warm-starts the search.
+
+    A hint only guides the search; it never constrains the answer. Starting from the
+    current plan makes a re-solve far less noisy, because CP-SAT begins from a good
+    solution instead of from scratch.
+    """
     started = time.monotonic()
     frozen_by_op = _check_frozen(instance, frozen)
 
@@ -75,6 +83,8 @@ def solve(
         return _no_schedule(config, started, SolveStatus.INFEASIBLE)
 
     # Stage 1: weighted tardiness.
+    if hint is not None:
+        _apply_hint(built, hint)
     built.model.minimize(built.weighted_tardiness)
     solver1 = _make_solver(config, config.time_limit_s * config.stage1_fraction)
     status1 = solver1.solve(built.model)
@@ -124,6 +134,7 @@ def _build(instance: Instance, frozen_by_op: dict[str, Assignment]) -> _Built | 
     end: dict[str, cp_model.IntVar] = {}
     presence: dict[tuple[str, str], cp_model.IntVar] = {}
     machine_intervals: dict[str, list[cp_model.IntervalVar]] = {m.id: [] for m in instance.machines}
+    domains: dict[str, tuple[int, int]] = {}
 
     for order in instance.orders:
         previous_end: cp_model.IntVar | None = None
@@ -139,6 +150,7 @@ def _build(instance: Instance, frozen_by_op: dict[str, Assignment]) -> _Built | 
             e = model.new_int_var(earliest + op.duration, horizon, f"e_{op.id}")
             model.add(e == s + op.duration)
             start[op.id], end[op.id] = s, e
+            domains[op.id] = (earliest, latest_start)
 
             chosen = []
             for machine in instance.eligible_machines(op):
@@ -178,7 +190,7 @@ def _build(instance: Instance, frozen_by_op: dict[str, Assignment]) -> _Built | 
     makespan = model.new_int_var(0, horizon, "makespan")
     model.add_max_equality(makespan, list(end.values()))
 
-    return _Built(model, start, presence, weighted_tardiness, makespan)
+    return _Built(model, start, presence, weighted_tardiness, makespan, domains)
 
 
 def _check_frozen(instance: Instance, frozen: Sequence[Assignment]) -> dict[str, Assignment]:
@@ -209,6 +221,20 @@ def _make_solver(config: SolverConfig, time_limit_s: float) -> cp_model.CpSolver
     solver.parameters.num_workers = config.num_workers
     solver.parameters.random_seed = config.seed
     return solver
+
+
+def _apply_hint(built: _Built, hint: Schedule) -> None:
+    """Suggest the hinted machine and start for every operation the model still has."""
+    for a in hint.assignments:
+        domain = built.domains.get(a.op_id)
+        if domain is None or not domain[0] <= a.start <= domain[1]:
+            continue  # unknown operation, or the hinted start is no longer allowed
+        if (a.op_id, a.machine_id) not in built.presence:
+            continue
+        built.model.add_hint(built.start[a.op_id], a.start)
+        for (op_id, machine_id), var in built.presence.items():
+            if op_id == a.op_id:
+                built.model.add_hint(var, 1 if machine_id == a.machine_id else 0)
 
 
 def _copy_hint(source: _Built, solver: cp_model.CpSolver, target: _Built) -> None:

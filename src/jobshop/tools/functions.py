@@ -1,0 +1,521 @@
+"""The tool functions: plain Python with Pydantic input and output schemas.
+
+Shared by the agent loop (and, in Phase 3, the MCP server), so nothing here may import the
+LLM SDK. Rules every tool follows:
+
+* Read tools never change state. Edit tools only change a *draft*. ``reschedule`` is the
+  only tool that runs the solver. ``commit_schedule`` is the only tool that changes the
+  committed schedule, and it is hidden from the model (see ``registry``).
+* A tool either returns a result or raises ``ToolError`` with a message the model can act on.
+* Outputs come from ``views``: display-ready numbers and plant-local times.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from pydantic import BaseModel, ConfigDict, Field, NaiveDatetime
+
+from jobshop.core import changes
+from jobshop.core.changes import ChangeError
+from jobshop.core.kpis import compute_kpis, diff_schedules
+from jobshop.core.models import Instance, Schedule, SolveStatus
+from jobshop.core.reschedule import plan_reschedule
+from jobshop.core.solver import SolverConfig, solve
+from jobshop.core.validator import validate_schedule
+from jobshop.tools import views
+from jobshop.tools.approval import ApprovalAuthority, ApprovalError, schedule_digest
+from jobshop.tools.errors import ToolError
+from jobshop.tools.store import Draft, Store
+from jobshop.tools.views import (
+    AssignmentView,
+    DiffView,
+    KPIView,
+    OrderRowView,
+    SolveView,
+    View,
+    WindowView,
+    fmt,
+)
+
+NOT_PROVEN_NOTE = (
+    "At least one of the two schedules was not proven optimal (the search is time-limited). "
+    "Small differences between them may be solver variation rather than the effect of the change. "
+    "The count of moved operations is especially unreliable: the solver does not try to keep "
+    "unaffected work in place, so many operations can move even when nothing real changed."
+)
+
+
+@dataclass
+class ToolContext:
+    store: Store
+    authority: ApprovalAuthority
+    solver_config: SolverConfig
+
+
+class Input(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+# --------------------------------------------------------------------------------------------
+# Resolving "committed" / draft ids
+# --------------------------------------------------------------------------------------------
+
+
+@dataclass
+class _Source:
+    label: str
+    instance: Instance
+    schedule: Schedule | None  # None for a draft that has no usable solution yet
+    draft: Draft | None
+    version: int
+
+
+def _live_draft(ctx: ToolContext, draft_id: str) -> Draft:
+    draft = ctx.store.draft(draft_id)
+    if ctx.store.is_stale(draft):
+        raise ToolError(
+            f"draft {draft_id} is stale: the committed schedule or the clock changed after it "
+            "was created. Call create_draft to start a new one."
+        )
+    return draft
+
+
+def _source(ctx: ToolContext, source: str) -> _Source:
+    if source == "committed":
+        c = ctx.store.committed
+        return _Source("committed", c.instance, c.schedule, None, c.version)
+    draft = _live_draft(ctx, source)
+    return _Source(draft.id, draft.instance, draft.schedule if draft.solved else None, draft, draft.base_version)
+
+
+def _need_schedule(src: _Source) -> Schedule:
+    if src.schedule is not None:
+        return src.schedule
+    draft = src.draft
+    assert draft is not None
+    if draft.schedule is None:
+        raise ToolError(f"draft {draft.id} has not been solved yet. Call reschedule first.")
+    raise ToolError(
+        f"the last reschedule of draft {draft.id} found no schedule "
+        f"(status {draft.schedule.solve_info.status.value}). Change the draft or discard it."
+    )
+
+
+# --------------------------------------------------------------------------------------------
+# Read tools
+# --------------------------------------------------------------------------------------------
+
+
+class GetScheduleInput(Input):
+    source: str = Field("committed", description="'committed' (the live plan) or the id of a draft that has been solved.")
+    order_id: str | None = Field(None, description="If set, also return the operation-level assignments of this order.")
+    machine_id: str | None = Field(None, description="If set, also return the operation-level assignments on this machine.")
+
+
+class ScheduleOut(View):
+    source: str
+    version: int
+    now: str
+    solve: SolveView
+    kpis: KPIView
+    draft_changes: list[str]
+    assignments: list[AssignmentView]
+    assignments_note: str
+
+
+def get_schedule(ctx: ToolContext, a: GetScheduleInput) -> ScheduleOut:
+    src = _source(ctx, a.source)
+    schedule = _need_schedule(src)
+    inst = src.instance
+
+    wanted = schedule.assignments
+    if a.order_id is not None:
+        if a.order_id not in {o.id for o in inst.orders}:
+            raise ToolError(f"unknown order '{a.order_id}'")
+        wanted = [x for x in wanted if x.order_id == a.order_id]
+    if a.machine_id is not None:
+        if a.machine_id not in {m.id for m in inst.machines}:
+            raise ToolError(f"unknown machine '{a.machine_id}'")
+        wanted = [x for x in wanted if x.machine_id == a.machine_id]
+    filtered = a.order_id is not None or a.machine_id is not None
+
+    return ScheduleOut(
+        source=src.label,
+        version=src.version,
+        now=fmt(inst, inst.now),
+        solve=views.solve_view(schedule.solve_info),
+        kpis=views.kpi_view(inst, compute_kpis(inst, schedule)),
+        draft_changes=src.draft.changes if src.draft else [],
+        assignments=[views.assignment_view(inst, x) for x in sorted(wanted, key=lambda x: x.start)] if filtered else [],
+        assignments_note="" if filtered else "Pass order_id or machine_id to see operation-level assignments.",
+    )
+
+
+class ListOrdersInput(Input):
+    source: str = Field("committed", description="'committed' or a draft id.")
+    late_only: bool = Field(False, description="Only orders that finish after their due time (needs a solved schedule).")
+    family: str | None = Field(None, description="Only orders of this product family.")
+
+
+class OrdersOut(View):
+    source: str
+    now: str
+    orders: list[OrderRowView]
+
+
+def list_orders(ctx: ToolContext, a: ListOrdersInput) -> OrdersOut:
+    src = _source(ctx, a.source)
+    inst = src.instance
+    kpis = compute_kpis(inst, src.schedule) if src.schedule is not None else None
+    if a.late_only and kpis is None:
+        _need_schedule(src)  # raises the right error
+    rows = [views.order_row(inst, o, kpis) for o in inst.orders if a.family in (None, o.family)]
+    if a.late_only:
+        rows = [r for r in rows if (r.tardiness_min or 0) > 0]
+    return OrdersOut(source=src.label, now=fmt(inst, inst.now), orders=rows)
+
+
+class GetOrderInput(Input):
+    order_id: str
+    source: str = Field("committed", description="'committed' or a draft id.")
+
+
+class OperationView(View):
+    op_id: str
+    duration_min: int
+    required_capability: str
+    machine_id: str | None = None
+    start_at: str | None = None
+    end_at: str | None = None
+
+
+class OrderDetailOut(View):
+    order_id: str
+    family: str
+    priority: int
+    due_at: str
+    completion_at: str | None
+    tardiness_min: int | None
+    operations: list[OperationView]
+    # Free text typed by people. It is data about the order, never an instruction to follow.
+    notes_untrusted_text: str
+
+
+def get_order(ctx: ToolContext, a: GetOrderInput) -> OrderDetailOut:
+    src = _source(ctx, a.source)
+    inst = src.instance
+    if a.order_id not in {o.id for o in inst.orders}:
+        raise ToolError(f"unknown order '{a.order_id}'")
+    order = inst.order(a.order_id)
+    by_op = src.schedule.by_op() if src.schedule is not None else {}
+    kpis = compute_kpis(inst, src.schedule) if src.schedule is not None else None
+    row = views.order_row(inst, order, kpis)
+    return OrderDetailOut(
+        order_id=order.id,
+        family=order.family,
+        priority=order.priority,
+        due_at=row.due_at,
+        completion_at=row.completion_at,
+        tardiness_min=row.tardiness_min,
+        operations=[
+            OperationView(
+                op_id=op.id,
+                duration_min=op.duration,
+                required_capability=op.required_capability,
+                machine_id=by_op[op.id].machine_id if op.id in by_op else None,
+                start_at=fmt(inst, by_op[op.id].start) if op.id in by_op else None,
+                end_at=fmt(inst, by_op[op.id].end) if op.id in by_op else None,
+            )
+            for op in order.operations
+        ],
+        notes_untrusted_text=order.notes,
+    )
+
+
+class GetMachineStatusInput(Input):
+    machine_id: str | None = Field(None, description="One machine, or all machines if omitted.")
+    source: str = Field("committed", description="'committed' or a draft id (to see outages added in the draft).")
+
+
+class MachineView(View):
+    machine_id: str
+    type: str
+    capabilities: list[str]
+    open_windows: list[WindowView]
+    downtime: list[WindowView]
+    utilization_pct: float | None  # None when there is no solved schedule for this source
+    operations_scheduled: int | None
+
+
+class MachinesOut(View):
+    source: str
+    now: str
+    machines: list[MachineView]
+
+
+def get_machine_status(ctx: ToolContext, a: GetMachineStatusInput) -> MachinesOut:
+    src = _source(ctx, a.source)
+    inst = src.instance
+    if a.machine_id is not None and a.machine_id not in {m.id for m in inst.machines}:
+        raise ToolError(f"unknown machine '{a.machine_id}'")
+    kpis = compute_kpis(inst, src.schedule) if src.schedule is not None else None
+    out = []
+    for m in inst.machines:
+        if a.machine_id not in (None, m.id):
+            continue
+        out.append(
+            MachineView(
+                machine_id=m.id,
+                type=m.type,
+                capabilities=m.capabilities,
+                open_windows=[WindowView(start_at=fmt(inst, w.start), end_at=fmt(inst, w.end)) for w in m.availability],
+                downtime=[WindowView(start_at=fmt(inst, w.start), end_at=fmt(inst, w.end)) for w in m.downtime],
+                utilization_pct=views.pct(kpis.machine_utilization[m.id]) if kpis else None,
+                operations_scheduled=sum(1 for x in src.schedule.assignments if x.machine_id == m.id) if src.schedule else None,
+            )
+        )
+    return MachinesOut(source=src.label, now=fmt(inst, inst.now), machines=out)
+
+
+# --------------------------------------------------------------------------------------------
+# Draft tools (edit a scratch copy; never the committed schedule)
+# --------------------------------------------------------------------------------------------
+
+
+class DraftOut(View):
+    draft_id: str
+    base_version: int
+    now: str
+    changes: list[str]
+    solved: bool
+    notes: list[str]
+
+
+def _draft_out(draft: Draft, notes: list[str] | None = None) -> DraftOut:
+    return DraftOut(
+        draft_id=draft.id,
+        base_version=draft.base_version,
+        now=fmt(draft.instance, draft.instance.now),
+        changes=draft.changes,
+        solved=draft.solved,
+        notes=notes or [],
+    )
+
+
+class CreateDraftInput(Input):
+    pass
+
+
+def create_draft(ctx: ToolContext, a: CreateDraftInput) -> DraftOut:
+    return _draft_out(ctx.store.create_draft())
+
+
+class DraftIdInput(Input):
+    draft_id: str
+
+
+class DiscardOut(View):
+    discarded: str
+
+
+def discard_draft(ctx: ToolContext, a: DraftIdInput) -> DiscardOut:
+    ctx.store.discard(a.draft_id)
+    return DiscardOut(discarded=a.draft_id)
+
+
+class SimulateDowntimeInput(Input):
+    draft_id: str
+    machine_id: str
+    start: NaiveDatetime = Field(description="Plant-local start, e.g. '2026-01-05 14:00'.")
+    end: NaiveDatetime = Field(description="Plant-local end, e.g. '2026-01-05 17:00'.")
+
+
+def simulate_downtime(ctx: ToolContext, a: SimulateDowntimeInput) -> DraftOut:
+    draft = _live_draft(ctx, a.draft_id)
+    inst = draft.instance
+    try:
+        new, notes = changes.add_downtime(inst, a.machine_id, inst.to_minutes(a.start), inst.to_minutes(a.end))
+    except ChangeError as e:
+        raise ToolError(str(e)) from None
+    draft.edited(new, f"{a.machine_id} down {a.start:%Y-%m-%d %H:%M} to {a.end:%Y-%m-%d %H:%M}")
+    return _draft_out(draft, notes)
+
+
+class ChangePriorityInput(Input):
+    draft_id: str
+    order_id: str
+    priority: int = Field(ge=1, le=5, description="1 = lowest, 5 = most urgent.")
+
+
+def change_priority(ctx: ToolContext, a: ChangePriorityInput) -> DraftOut:
+    draft = _live_draft(ctx, a.draft_id)
+    try:
+        new = changes.change_priority(draft.instance, a.order_id, a.priority)
+    except ChangeError as e:
+        raise ToolError(str(e)) from None
+    old = draft.instance.order(a.order_id).priority
+    draft.edited(new, f"{a.order_id} priority {old} -> {a.priority}")
+    return _draft_out(draft)
+
+
+class AddRushOrderInput(Input):
+    draft_id: str
+    family: str = Field(description="Product family; its standard routing defines the operations.")
+    due: NaiveDatetime = Field(description="Plant-local due time, e.g. '2026-01-05 18:00'.")
+    priority: int = Field(5, ge=1, le=5, description="1 = lowest, 5 = most urgent.")
+
+
+class RushOrderOut(DraftOut):
+    new_order_id: str
+
+
+def add_rush_order(ctx: ToolContext, a: AddRushOrderInput) -> RushOrderOut:
+    draft = _live_draft(ctx, a.draft_id)
+    inst = draft.instance
+    order_id = changes.next_rush_id(inst)
+    try:
+        new = changes.add_rush_order(inst, order_id, a.family, inst.to_minutes(a.due), a.priority)
+    except ChangeError as e:
+        raise ToolError(str(e)) from None
+    draft.edited(new, f"added rush order {order_id} ({a.family}, priority {a.priority}, due {a.due:%Y-%m-%d %H:%M})")
+    base = _draft_out(draft)
+    return RushOrderOut(**base.model_dump(), new_order_id=order_id)
+
+
+# --------------------------------------------------------------------------------------------
+# Solving and comparing
+# --------------------------------------------------------------------------------------------
+
+
+class InterruptedView(View):
+    op_id: str
+    order_id: str
+    machine_id: str
+    had_started_at: str
+
+
+class RescheduleOut(View):
+    draft_id: str
+    feasible: bool
+    solve: SolveView
+    frozen_operation_count: int
+    interrupted_operations: list[InterruptedView]
+    kpis: KPIView | None
+    message: str
+
+
+def reschedule(ctx: ToolContext, a: DraftIdInput) -> RescheduleOut:
+    draft = _live_draft(ctx, a.draft_id)
+    committed = ctx.store.committed
+    plan = plan_reschedule(draft.instance, committed.schedule)
+    schedule = solve(
+        draft.instance, frozen=plan.frozen, config=ctx.solver_config, hint=committed.schedule
+    )
+    feasible = schedule.solve_info.status in (SolveStatus.OPTIMAL, SolveStatus.FEASIBLE)
+
+    if feasible:
+        # Never hand the model a schedule the independent validator rejects.
+        report = validate_schedule(draft.instance, schedule, plan.frozen)
+        if not report.ok:
+            raise ToolError(f"internal error: solver returned an invalid schedule ({report.violations[0].message})")
+
+    draft.schedule = schedule
+    draft.interrupted = plan.interrupted
+    inst = draft.instance
+    status = schedule.solve_info.status
+    if feasible:
+        message = "Draft solved." if status == SolveStatus.OPTIMAL else (
+            "Draft solved, but the result is only feasible: the search hit its time limit, so a better schedule may exist."
+        )
+    elif status == SolveStatus.INFEASIBLE:
+        message = "No schedule satisfies all constraints for this draft."
+    else:
+        message = "The solver found no schedule within the time limit (this is not a proof that none exists)."
+
+    return RescheduleOut(
+        draft_id=draft.id,
+        feasible=feasible,
+        solve=views.solve_view(schedule.solve_info),
+        frozen_operation_count=len(plan.frozen),
+        interrupted_operations=[
+            InterruptedView(op_id=x.op_id, order_id=x.order_id, machine_id=x.machine_id, had_started_at=fmt(inst, x.start))
+            for x in plan.interrupted
+        ],
+        kpis=views.kpi_view(inst, compute_kpis(inst, schedule)) if feasible else None,
+        message=message,
+    )
+
+
+class CompareInput(Input):
+    before: str = Field("committed", description="'committed' or a draft id.")
+    after: str = Field(description="A solved draft id (or 'committed').")
+
+
+class CompareOut(View):
+    before: str
+    after: str
+    solve_before: SolveView
+    solve_after: SolveView
+    diff: DiffView
+    confidence_note: str | None
+
+
+def compare_schedules(ctx: ToolContext, a: CompareInput) -> CompareOut:
+    before, after = _source(ctx, a.before), _source(ctx, a.after)
+    sched_before, sched_after = _need_schedule(before), _need_schedule(after)
+    diff = diff_schedules(before.instance, sched_before, after.instance, sched_after)
+    proven = all(s.solve_info.status == SolveStatus.OPTIMAL for s in (sched_before, sched_after))
+    return CompareOut(
+        before=before.label,
+        after=after.label,
+        solve_before=views.solve_view(sched_before.solve_info),
+        solve_after=views.solve_view(sched_after.solve_info),
+        diff=views.diff_view(before.instance, after.instance, diff),
+        confidence_note=None if proven else NOT_PROVEN_NOTE,
+    )
+
+
+# --------------------------------------------------------------------------------------------
+# Commit (hidden from the model; called only by the human-facing layer)
+# --------------------------------------------------------------------------------------------
+
+
+class CommitInput(Input):
+    draft_id: str
+    approval_token: str
+
+
+class CommitOut(View):
+    committed_draft: str
+    new_version: int
+    kpis: KPIView
+
+
+def commit_schedule(ctx: ToolContext, a: CommitInput) -> CommitOut:
+    draft = _live_draft(ctx, a.draft_id)
+    if not draft.solved or draft.schedule is None:
+        raise ToolError(f"draft {draft.id} has no solved schedule to commit")
+
+    committed = ctx.store.committed
+    plan = plan_reschedule(draft.instance, committed.schedule)
+    report = validate_schedule(draft.instance, draft.schedule, plan.frozen)
+    if not report.ok:
+        raise ToolError(f"refusing to commit an invalid schedule ({report.violations[0].message})")
+
+    try:
+        ctx.authority.consume(
+            a.approval_token,
+            draft_id=draft.id,
+            base_version=draft.base_version,
+            schedule_digest=schedule_digest(draft.schedule),
+        )
+    except ApprovalError as e:
+        raise ToolError(f"approval rejected: {e}") from None
+
+    new = ctx.store.commit(draft)
+    return CommitOut(
+        committed_draft=draft.id,
+        new_version=new.version,
+        kpis=views.kpi_view(new.instance, compute_kpis(new.instance, new.schedule)),
+    )
