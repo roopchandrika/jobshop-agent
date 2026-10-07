@@ -11,11 +11,17 @@ How the model works (read this before the code):
   non-preemptive operation therefore cannot overlap closed time, so it has to fit
   entirely inside one open window.
 * Operations of one order run in sequence: each starts after the previous one ends.
-* Objective is lexicographic and solved in two stages:
-    1. minimize weighted tardiness (weight comes from order priority);
-    2. fix that tardiness value as a constraint, then minimize makespan.
-  Two stages keep the priorities strict (no weighting trade-off between tardiness and
-  makespan) and let us report honestly which stage was proven optimal.
+* Objective is lexicographic, solved in two stages. After stage 1 its optimum is fixed as
+  a constraint, so stage 2 can never undo it:
+    1. minimize weighted tardiness (weight comes from order priority) and, as a strict
+       tie-break, the number of operations that differ from a reference plan (different
+       machine or different start) when ``stay_close_to`` is given;
+    2. minimize makespan.
+  Strict priorities (no weighting trade-off) let us report which part was proven optimal.
+
+Why the stability tie-break exists: tardiness and makespan do not care where unaffected
+work sits, so a re-solve reshuffles most of the plan for no reason (an empty change moved
+58 of 81 operations in measurement). The tie-break makes a change move only what it must.
 
 Rescheduling: ``instance.now`` is the current minute. Operations in ``frozen`` keep their
 machine and start; every other operation must start at or after ``now``.
@@ -45,7 +51,7 @@ class SolverConfig:
     # CP-SAT with several workers is not deterministic; tests use 1 worker.
     num_workers: int = 8
     seed: int = 0
-    # Share of the time budget stage 1 may use. Stage 2 gets whatever is left.
+    # Share of the whole budget the tardiness stage may use.
     stage1_fraction: float = 0.6
 
 
@@ -59,72 +65,113 @@ class _Built:
     domains: dict[str, tuple[int, int]]  # op_id -> (earliest start, latest start)
 
 
+@dataclass
+class _Solved:
+    """A finished stage: its model, its solver, and (if it had one) the 'moved' expression."""
+
+    built: _Built
+    solver: cp_model.CpSolver
+    moved: cp_model.LinearExpr | None = None
+
+
 def solve(
     instance: Instance,
     frozen: Sequence[Assignment] = (),
     config: SolverConfig = SolverConfig(),
     hint: Schedule | None = None,
+    stay_close_to: Schedule | None = None,
 ) -> Schedule:
-    """Solve ``instance``. ``hint`` (typically the committed schedule) warm-starts the search.
+    """Solve ``instance``.
 
-    A hint only guides the search; it never constrains the answer. Starting from the
-    current plan makes a re-solve far less noisy, because CP-SAT begins from a good
-    solution instead of from scratch.
+    ``hint`` (typically the committed schedule) only warm-starts the search; it never
+    constrains the answer. ``stay_close_to`` adds the stability tie-break: among schedules
+    with the best tardiness, prefer the one that differs from this reference in the fewest
+    operations. Frozen operations are never counted (they cannot move).
     """
     started = time.monotonic()
     frozen_by_op = _check_frozen(instance, frozen)
 
     if not any(order.operations for order in instance.orders):
-        info = _info(config, started, SolveStatus.OPTIMAL, True, True, 0.0, 0, 0)
+        info = _info(config, started, SolveStatus.OPTIMAL, tardiness_optimal=True,
+                     makespan_optimal=True, tardiness_bound=0.0,
+                     reported_tardiness=0, reported_makespan=0)
         return Schedule(assignments=[], solve_info=info)
 
     built = _build(instance, frozen_by_op)
     if built is None:  # some operation cannot fit before the horizon at all
         return _no_schedule(config, started, SolveStatus.INFEASIBLE)
 
-    # Stage 1: weighted tardiness.
+    def remaining() -> float:
+        return config.time_limit_s - (time.monotonic() - started)
+
+    # ---- Stage 1: weighted tardiness (then fewest moved operations, as a tie-break) -----------
+    # With a reference, the objective is  (K + 1) * weighted_tardiness + moved  where K is the
+    # most operations that could be counted as moved. Because 0 <= moved <= K, one unit of
+    # tardiness always outweighs any number of moves, so minimizing this single number is
+    # exactly "tardiness first, then fewest moves". Folding the tie-break into the first solve
+    # (rather than a separate later stage) matters: it steers the search toward the reference
+    # from the start instead of letting it wander far away and then trying to walk back.
     if hint is not None:
         _apply_hint(built, hint)
-    built.model.minimize(built.weighted_tardiness)
+    moved1, comparable = (None, 0)
+    if stay_close_to is not None:
+        moved1, comparable = _add_stability(built, stay_close_to, frozen_by_op)
+    scale = comparable + 1
+    if moved1 is not None and comparable:
+        built.model.minimize(scale * built.weighted_tardiness + moved1)
+    else:
+        moved1 = None
+        built.model.minimize(built.weighted_tardiness)
+
     solver1 = _make_solver(config, config.time_limit_s * config.stage1_fraction)
     status1 = solver1.solve(built.model)
     if status1 not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         return _no_schedule(config, started, _map_failure(status1))
 
-    best_tardiness = round(solver1.objective_value)
-    tardiness_optimal = status1 == cp_model.OPTIMAL
-    tardiness_bound = solver1.best_objective_bound
-    assignments = _extract(instance, built, solver1)
-    reported_tardiness = best_tardiness
-    reported_makespan = solver1.value(built.makespan)
-    makespan_optimal = False
+    best = _Solved(built, solver1, moved1)
+    best_tardiness = round(solver1.value(built.weighted_tardiness))
+    best_moved = round(solver1.value(moved1)) if moved1 is not None else None
+    stage1_optimal = status1 == cp_model.OPTIMAL
+    # A proof of the combined objective proves both parts, in that priority order.
+    tardiness_optimal = stage1_optimal
+    stability_optimal: bool | None = stage1_optimal if moved1 is not None else None
+    # Lower bound on weighted tardiness implied by the bound on the combined objective.
+    tardiness_bound = max(0.0, (solver1.best_objective_bound - comparable) / scale)
 
-    # Stage 2: keep tardiness no worse, minimize makespan. Rebuilding is cheap and keeps
-    # stage 1's model untouched; the stage 1 solution is passed in as a hint so stage 2
-    # always has a valid starting point even with little time left.
-    remaining = config.time_limit_s - (time.monotonic() - started)
-    if remaining >= 0.2:
+    # ---- Stage 2: makespan, with the earlier optima held fixed -------------------------------
+    # Rebuilding is cheap; the best solution so far is passed in as a hint so this stage always
+    # has a valid starting point even when little time is left.
+    makespan_optimal = False
+    if remaining() >= 0.2:
         built2 = _build(instance, frozen_by_op)
         assert built2 is not None  # same instance as stage 1, which succeeded
         built2.model.add(built2.weighted_tardiness <= best_tardiness)
-        _copy_hint(built, solver1, built2)
+        moved2 = None
+        if best_moved is not None:
+            assert stay_close_to is not None
+            moved2, _ = _add_stability(built2, stay_close_to, frozen_by_op)
+            built2.model.add(moved2 <= best_moved)
+        _copy_hint(best.built, best.solver, built2)
         built2.model.minimize(built2.makespan)
-        solver2 = _make_solver(config, remaining)
+        solver2 = _make_solver(config, remaining())
         status2 = solver2.solve(built2.model)
         if status2 in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            assignments = _extract(instance, built2, solver2)
-            reported_tardiness = round(solver2.value(built2.weighted_tardiness))
-            reported_makespan = solver2.value(built2.makespan)
+            best = _Solved(built2, solver2, moved2)
             makespan_optimal = status2 == cp_model.OPTIMAL
 
-    status = (
-        SolveStatus.OPTIMAL if tardiness_optimal and makespan_optimal else SolveStatus.FEASIBLE
-    )
+    proven = tardiness_optimal and makespan_optimal and stability_optimal is not False
     info = _info(
-        config, started, status, tardiness_optimal, makespan_optimal,
-        tardiness_bound, reported_tardiness, reported_makespan,
+        config, started,
+        SolveStatus.OPTIMAL if proven else SolveStatus.FEASIBLE,
+        tardiness_optimal=tardiness_optimal,
+        makespan_optimal=makespan_optimal,
+        stability_optimal=stability_optimal,
+        tardiness_bound=tardiness_bound,
+        reported_tardiness=round(best.solver.value(best.built.weighted_tardiness)),
+        reported_makespan=best.solver.value(best.built.makespan),
+        reported_moved=round(best.solver.value(best.moved)) if best.moved is not None else None,
     )
-    return Schedule(assignments=assignments, solve_info=info)
+    return Schedule(assignments=_extract(instance, best.built, best.solver), solve_info=info)
 
 
 def _build(instance: Instance, frozen_by_op: dict[str, Assignment]) -> _Built | None:
@@ -237,6 +284,40 @@ def _apply_hint(built: _Built, hint: Schedule) -> None:
                 built.model.add_hint(var, 1 if machine_id == a.machine_id else 0)
 
 
+def _add_stability(
+    built: _Built, reference: Schedule, frozen_by_op: dict[str, Assignment]
+) -> tuple[cp_model.LinearExpr, int]:
+    """Add 'unchanged' indicators and return (number of changed operations, how many were counted).
+
+    An operation counts as unchanged only if it is on the same machine at the same start as in
+    ``reference``. Each indicator is tied to that fact in BOTH directions (no slack), so the
+    count the solver reports is exactly the count you would get by comparing the schedules.
+
+    Not counted: frozen operations (they cannot move), operations missing from the reference,
+    and operations whose reference start is no longer allowed (e.g. they must restart after
+    ``now``). Those are neither a choice nor a cost the solver can influence.
+    """
+    model = built.model
+    unchanged = []
+    for a in reference.assignments:
+        domain = built.domains.get(a.op_id)
+        on_ref_machine = built.presence.get((a.op_id, a.machine_id))
+        if a.op_id in frozen_by_op or domain is None or on_ref_machine is None:
+            continue
+        if not domain[0] <= a.start <= domain[1]:
+            continue
+
+        same_start = model.new_bool_var(f"same_start_{a.op_id}")
+        model.add(built.start[a.op_id] == a.start).only_enforce_if(same_start)
+        model.add(built.start[a.op_id] != a.start).only_enforce_if(~same_start)
+
+        same = model.new_bool_var(f"same_{a.op_id}")
+        model.add_bool_and([same_start, on_ref_machine]).only_enforce_if(same)
+        model.add_bool_or([~same_start, ~on_ref_machine]).only_enforce_if(~same)
+        unchanged.append(same)
+    return len(unchanged) - cp_model.LinearExpr.sum(unchanged), len(unchanged)
+
+
 def _copy_hint(source: _Built, solver: cp_model.CpSolver, target: _Built) -> None:
     for op_id, var in source.start.items():
         target.model.add_hint(target.start[op_id], solver.value(var))
@@ -275,27 +356,31 @@ def _map_failure(status: int) -> SolveStatus:
 
 
 def _no_schedule(config: SolverConfig, started: float, status: SolveStatus) -> Schedule:
-    info = _info(config, started, status, False, False, None, None, None)
-    return Schedule(assignments=[], solve_info=info)
+    return Schedule(assignments=[], solve_info=_info(config, started, status))
 
 
 def _info(
     config: SolverConfig,
     started: float,
     status: SolveStatus,
-    tardiness_optimal: bool,
-    makespan_optimal: bool,
-    tardiness_bound: float | None,
-    reported_tardiness: int | None,
-    reported_makespan: int | None,
+    *,
+    tardiness_optimal: bool = False,
+    makespan_optimal: bool = False,
+    stability_optimal: bool | None = None,
+    tardiness_bound: float | None = None,
+    reported_tardiness: int | None = None,
+    reported_makespan: int | None = None,
+    reported_moved: int | None = None,
 ) -> SolveInfo:
     return SolveInfo(
         status=status,
         tardiness_optimal=tardiness_optimal,
         makespan_optimal=makespan_optimal,
+        stability_optimal=stability_optimal,
         tardiness_bound=tardiness_bound,
         reported_weighted_tardiness=reported_tardiness,
         reported_makespan=reported_makespan,
+        reported_moved_operations=reported_moved,
         wall_time_s=round(time.monotonic() - started, 3),
         num_workers=config.num_workers,
         seed=config.seed,

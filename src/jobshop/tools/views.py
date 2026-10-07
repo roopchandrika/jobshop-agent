@@ -52,6 +52,8 @@ class SolveView(View):
     status: str  # OPTIMAL, FEASIBLE, INFEASIBLE or UNKNOWN
     tardiness_proven_optimal: bool
     makespan_proven_optimal: bool
+    # Whether "fewest operations moved from the live plan" was proven minimal; null if not applicable.
+    stability_proven_optimal: bool | None = None
     solve_seconds: float
 
 
@@ -105,6 +107,7 @@ def solve_view(info: SolveInfo) -> SolveView:
         status=info.status.value,
         tardiness_proven_optimal=info.tardiness_optimal,
         makespan_proven_optimal=info.makespan_optimal,
+        stability_proven_optimal=info.stability_optimal,
         solve_seconds=round(info.wall_time_s, 1),
     )
 

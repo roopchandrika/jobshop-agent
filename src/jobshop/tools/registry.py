@@ -94,11 +94,12 @@ TOOLS: list[Tool] = [
     Tool(
         "reschedule",
         "Solve a draft: re-plan everything that has not started yet around the draft's "
-        "changes, keeping work that already started where it is. This is the ONLY tool that "
-        "runs the solver and it can take up to the solver time limit. Operations running on a "
-        "machine that goes down are interrupted and restart; they are listed in the result. "
-        "Check solve.status: only OPTIMAL means proven best; FEASIBLE means valid but a "
-        "better schedule may exist.",
+        "changes, keeping work that already started where it is, and moving as little else as "
+        "possible. This is the ONLY tool that runs the solver and it can take up to the solver "
+        "time limit. Operations running on a machine that goes down are interrupted and "
+        "restart; they are listed in the result. Check solve.status: only OPTIMAL means proven "
+        "best; FEASIBLE means valid but a better schedule may exist. solve."
+        "stability_proven_optimal says whether the number of moved operations is proven minimal.",
         f.DraftIdInput, f.reschedule,
     ),
     Tool(

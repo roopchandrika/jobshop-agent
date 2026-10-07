@@ -166,7 +166,7 @@ class Assignment(_Model):
 
 
 class SolveStatus(str, Enum):
-    OPTIMAL = "OPTIMAL"  # both objectives proven optimal
+    OPTIMAL = "OPTIMAL"  # every stage that ran was proven optimal
     FEASIBLE = "FEASIBLE"  # valid schedule, but not proven optimal (time limit hit)
     INFEASIBLE = "INFEASIBLE"  # proven: no schedule satisfies the constraints
     UNKNOWN = "UNKNOWN"  # ran out of time without finding any schedule
@@ -176,12 +176,16 @@ class SolveInfo(_Model):
     status: SolveStatus
     tardiness_optimal: bool = False
     makespan_optimal: bool = False
+    # None when no reference plan was given (the stability stage did not run). Otherwise
+    # whether "fewest operations moved from the reference" was proven minimal.
+    stability_optimal: bool | None = None
     # Best proven lower bound on weighted tardiness (None if no solve happened).
     tardiness_bound: float | None = None
     # What the solver itself reported for the schedule it returned. Tests compare these
     # with values recomputed independently by ``kpis``.
     reported_weighted_tardiness: int | None = None
     reported_makespan: int | None = None
+    reported_moved_operations: int | None = None  # vs the reference plan; None if not applicable
     wall_time_s: float = 0.0
     num_workers: int = 1
     seed: int = 0

@@ -41,8 +41,8 @@ from jobshop.tools.views import (
 NOT_PROVEN_NOTE = (
     "At least one of the two schedules was not proven optimal (the search is time-limited). "
     "Small differences between them may be solver variation rather than the effect of the change. "
-    "The count of moved operations is especially unreliable: the solver does not try to keep "
-    "unaffected work in place, so many operations can move even when nothing real changed."
+    "The solver tries to keep unaffected work where it was, but when a result is not proven "
+    "optimal the number of moved operations may be higher than strictly necessary."
 )
 
 
@@ -410,7 +410,8 @@ def reschedule(ctx: ToolContext, a: DraftIdInput) -> RescheduleOut:
     committed = ctx.store.committed
     plan = plan_reschedule(draft.instance, committed.schedule)
     schedule = solve(
-        draft.instance, frozen=plan.frozen, config=ctx.solver_config, hint=committed.schedule
+        draft.instance, frozen=plan.frozen, config=ctx.solver_config,
+        hint=committed.schedule, stay_close_to=committed.schedule,
     )
     feasible = schedule.solve_info.status in (SolveStatus.OPTIMAL, SolveStatus.FEASIBLE)
 

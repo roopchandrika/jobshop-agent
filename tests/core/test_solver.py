@@ -210,3 +210,142 @@ def test_hint_entries_for_unknown_operations_or_out_of_range_starts_are_ignored(
         first.assignments[0].model_copy(update={"start": 10**6, "end": 10**6 + 5}),
     ]})
     assert validate_schedule(inst, solve(inst, config=FAST, hint=junk)).ok
+
+
+# --- stability stage (fewest operations moved from a reference plan) ---------------------------
+
+from jobshop.core import changes  # noqa: E402
+from jobshop.core.kpis import diff_schedules  # noqa: E402
+from tests.helpers import schedule  # noqa: E402
+
+
+def _as_tuples(sched):
+    return sorted((a.op_id, a.machine_id, a.start, a.end) for a in sched.assignments)
+
+
+def test_nothing_moves_when_nothing_needs_to_change():
+    inst = instance(
+        [machine("M1"), machine("M2")],
+        [order(x, 1000, [(10, "cut")]) for x in "ABC"],
+    )
+    # A deliberately wasteful but valid plan: gaps and unbalanced machines.
+    ref = schedule([assign("A-op1", "A", "M1", 0, 10), assign("B-op1", "B", "M2", 50, 60), assign("C-op1", "C", "M1", 100, 110)])
+    sched = solve(inst, config=FAST, stay_close_to=ref)
+
+    assert _as_tuples(sched) == _as_tuples(ref)
+    assert sched.solve_info.reported_moved_operations == 0 and sched.solve_info.stability_optimal is True
+    assert sched.solve_info.status == SolveStatus.OPTIMAL
+    # Stability outranks makespan: the plan is kept even though it is not compact...
+    assert compute_kpis(inst, sched).makespan == 110
+    # ...whereas without a reference the solver packs it tightly.
+    assert compute_kpis(inst, solve(inst, config=FAST)).makespan == 20
+
+
+def test_tardiness_outranks_stability():
+    # The reference runs the low-priority job first. Staying put would make the priority-5
+    # job late (cost 160); the best tardiness (10) requires swapping them, so both move.
+    inst = instance(
+        [machine("M")],
+        [order("A", 10, [(10, "cut")], priority=5), order("B", 10, [(10, "cut")], priority=1)],
+    )
+    ref = schedule([assign("B-op1", "B", "M", 0, 10), assign("A-op1", "A", "M", 10, 20)])
+    sched = solve(inst, config=FAST, stay_close_to=ref)
+    ops = sched.by_op()
+    assert ops["A-op1"].start == 0 and ops["B-op1"].start == 10
+    assert compute_kpis(inst, sched).weighted_tardiness == 10
+    assert sched.solve_info.reported_moved_operations == 2
+
+
+def test_a_disruption_moves_only_the_operations_it_forces():
+    # M1: A,B   M2: C,D,E (10 minutes each, loose due dates). M2 goes down 10-20, hitting D.
+    base = instance(
+        [machine("M1"), machine("M2")],
+        [order(x, 1000, [(10, "cut")]) for x in "ABCDE"],
+    )
+    ref = schedule([
+        assign("A-op1", "A", "M1", 0, 10), assign("B-op1", "B", "M1", 10, 20),
+        assign("C-op1", "C", "M2", 0, 10), assign("D-op1", "D", "M2", 10, 20), assign("E-op1", "E", "M2", 20, 30),
+    ])
+    disrupted, _ = changes.add_downtime(base, "M2", 10, 20)
+    sched = solve(disrupted, config=FAST, hint=ref, stay_close_to=ref)
+
+    changed = {a.op_id for a in sched.assignments} - {a.op_id for a in sched.assignments if a in ref.assignments}
+    assert changed == {"D-op1"}  # everything else stayed exactly where it was
+    assert sched.by_op()["D-op1"].start >= 20 or sched.by_op()["D-op1"].machine_id == "M1"
+    assert sched.solve_info.reported_moved_operations == 1 and sched.solve_info.stability_optimal is True
+    assert validate_schedule(disrupted, sched).ok
+
+
+def test_without_a_reference_the_stability_stage_does_not_run():
+    inst = _small_instance()
+    info = solve(inst, config=FAST).solve_info
+    assert info.stability_optimal is None and info.reported_moved_operations is None
+
+
+@pytest.mark.parametrize("seed", range(3))
+def test_reported_moved_count_matches_an_independent_comparison(seed):
+    inst = _small_instance(seed)
+    base = solve(inst, config=FAST)
+    disrupted, _ = changes.add_downtime(inst, "M2", 60, 200)
+    new = solve(disrupted, config=FAST, hint=base, stay_close_to=base)
+
+    assert validate_schedule(disrupted, new).ok
+    diff = diff_schedules(inst, base, disrupted, new)
+    assert new.solve_info.reported_moved_operations == len(diff.moved_operations)
+
+
+def test_new_operations_are_not_counted_as_moved():
+    inst = _small_instance()
+    base = solve(inst, config=FAST)
+    family = next(iter(inst.routing_templates))
+    with_rush = changes.add_rush_order(inst, "RUSH-1", family, due=900)
+    new = solve(with_rush, config=FAST, hint=base, stay_close_to=base)
+    diff = diff_schedules(inst, base, with_rush, new)
+    assert diff.added_operations and new.solve_info.reported_moved_operations == len(diff.moved_operations)
+    assert validate_schedule(with_rush, new).ok
+
+
+def test_frozen_operations_are_excluded_from_the_stability_count():
+    inst = instance(
+        [machine("M1", windows=[(0, 300)]), machine("M2", windows=[(0, 300)])],
+        [order("A", 200, [(30, "cut"), (20, "cut")]), order("B", 100, [(20, "cut")])],
+        now=50,
+    )
+    ref = schedule([assign("A-op1", "A", "M1", 40, 70), assign("A-op2", "A", "M1", 70, 90), assign("B-op1", "B", "M2", 50, 70)])
+    frozen = [ref.assignments[0]]
+    sched = solve(inst, frozen=frozen, config=FAST, hint=ref, stay_close_to=ref)
+    assert _as_tuples(sched) == _as_tuples(ref)
+    assert sched.solve_info.reported_moved_operations == 0
+    assert validate_schedule(inst, sched, frozen).ok
+
+
+def test_one_unit_of_tardiness_outweighs_any_number_of_moves():
+    # One priority-1 job (due 29) sits last, finishing at 30: just 1 minute late (cost 1).
+    # Fixing that means swapping it with an earlier job: 2 operations move to save 1 unit.
+    # Strict lexicographic order says fix the lateness anyway; a too-small stability weight
+    # (cost 1 to stay vs 2 to move) would keep the plan.
+    inst = instance(
+        [machine("M")],
+        [order("P", 29, [(10, "cut")], priority=1), order("Q", 1000, [(10, "cut")]), order("R", 1000, [(10, "cut")])],
+    )
+    ref = schedule([assign("Q-op1", "Q", "M", 0, 10), assign("R-op1", "R", "M", 10, 20), assign("P-op1", "P", "M", 20, 30)])
+    sched = solve(inst, config=FAST, stay_close_to=ref)
+    assert compute_kpis(inst, sched).weighted_tardiness == 0
+    assert sched.solve_info.reported_moved_operations == 2
+
+
+def test_makespan_stage_never_gives_up_tardiness():
+    # The machine is open [0,15) and [100,300). Only one job fits in the first window.
+    #   A (priority 5, due 10, 10 min) first  -> A on time, D at 100-112: makespan 112
+    #   D (12 min) first                      -> A at 100-110, 100 min late: makespan 110
+    # The shorter makespan is the worse plan. Tardiness is fixed first, so makespan must not win.
+    inst = instance(
+        [machine("M", windows=[(0, 15), (100, 300)])],
+        [order("A", 10, [(10, "cut")], priority=5), order("D", 1000, [(12, "cut")], priority=1)],
+    )
+    sched = solve(inst, config=FAST)
+    ops = sched.by_op()
+    assert ops["A-op1"].start == 0 and ops["D-op1"].start == 100
+    kpis = compute_kpis(inst, sched)
+    assert (kpis.weighted_tardiness, kpis.makespan) == (0, 112)
+    assert sched.solve_info.status == SolveStatus.OPTIMAL

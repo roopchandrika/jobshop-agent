@@ -52,11 +52,18 @@ the Phase 0 review and take precedence over the spec where they differ.
   machine's `capabilities`. Operations have a single duration (not per machine).
 - Orders have a `family` and untrusted free-text `notes`. The instance holds
   routing templates per family; `add_rush_order(family, due, priority)` uses them.
-- Objective is a two-stage solve: minimize weighted tardiness, fix that value,
-  then minimize makespan. Report solver status and whether each stage was proven
-  optimal. Never describe a result as optimal unless it was proven.
-- Reschedule: operations that started before `now` are frozen; every other
-  operation starts at or after `now`. A stability penalty is deferred.
+- Objective is strictly lexicographic: (1) weighted tardiness, then (2) with a live plan
+  as reference, fewest operations moved from it, then (3) makespan. Stages 1 and 2 are one
+  solve with objective `(K+1) * tardiness + moved` (K = most countable moves), which is
+  exactly that order; stage 3 re-solves with both optima held fixed. Report solver status
+  and which parts were proven. Never describe a result as optimal or minimal-change unless
+  it was proven.
+- Reschedule: operations that started before `now` are frozen; a running operation hit by
+  a new outage is interrupted and restarts; every other operation starts at or after `now`.
+  `reschedule` passes the committed plan as both warm-start hint and stability reference.
+- Known limit: strict priority means one minute of tardiness outweighs any number of moves,
+  and at the default shop size (81 operations, 30 s) nothing is proven optimal. A
+  tardiness-vs-disruption tolerance is an open decision, not implemented.
 
 **Tools, agent, safety**
 - Change tools (downtime, priority, rush order) only edit a draft. `reschedule`

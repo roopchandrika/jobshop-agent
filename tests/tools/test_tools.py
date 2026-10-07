@@ -425,3 +425,28 @@ def test_every_tool_result_is_json_serializable(ctx, registry):
         registry.call("discard_draft", {"draft_id": d}),
     ]
     json.dumps(results)
+
+
+# --- stability: a change moves only what it must ---------------------------------------------
+
+
+def test_an_empty_draft_changes_nothing(ctx, registry):
+    """Regression for the measured problem: re-solving with no changes used to reshuffle most of the plan."""
+    d = new_draft(registry)
+    out = registry.call("reschedule", {"draft_id": d})
+    diff = registry.call("compare_schedules", {"after": d})["diff"]
+
+    assert out["solve"]["stability_proven_optimal"] is True
+    assert diff["moved_operation_count"] == 0 and diff["machine_change_count"] == 0
+    assert diff["delta_total_tardiness_min"] == 0 and diff["delta_makespan_min"] == 0
+    assert diff["newly_late_orders"] == [] and diff["order_changes"] == []
+
+
+def test_a_disruption_moves_far_fewer_operations_than_the_whole_plan(ctx, registry):
+    committed = ctx.store.committed
+    total_ops = len(committed.schedule.assignments)
+    d = new_draft(registry)
+    registry.call("simulate_downtime", {"draft_id": d, "machine_id": "M2", "start": "2026-01-05 07:00", "end": "2026-01-05 09:00"})
+    registry.call("reschedule", {"draft_id": d})
+    diff = registry.call("compare_schedules", {"after": d})["diff"]
+    assert diff["moved_operation_count"] < total_ops / 2
