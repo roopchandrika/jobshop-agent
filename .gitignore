@@ -14,3 +14,6 @@ __pycache__/
 Thumbs.db
 .vscode/
 .idea/
+
+# Owner-reference copy of the original spec (kept locally, not committed)
+docs/SPEC.md
