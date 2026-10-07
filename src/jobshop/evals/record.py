@@ -56,6 +56,7 @@ class Run:
     version_at_start: int
     wall_s: float
     trace_path: Path | None = None
+    model: str | None = None
     calls: list[ToolCall] = field(init=False)
 
     def __post_init__(self) -> None:

@@ -12,6 +12,7 @@ scenario's ``oracle`` script (which read-only calls to make, and what to say).
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -58,9 +59,21 @@ def _proposal_summary(messages: list[dict[str, Any]]) -> str:
     )
 
 
-def steps_for(scenario: Scenario) -> list[tuple[str, Step | dict[str, Any]]]:
+def flaw_for(scenario: Scenario) -> str | None:
+    """Which mistake the sloppy variant makes in this scenario (deterministic, so demos are repeatable)."""
+    key = sum(map(ord, scenario.id))
+    if scenario.expect.outcome == "proposal":
+        if key % 4 == 0:
+            return "skips_comparison"
+        if key % 5 == 0:
+            return "invents_a_number"
+    return None
+
+
+def steps_for(scenario: Scenario, sloppy: bool = False) -> list[tuple[str, Step | dict[str, Any]]]:
     """('calls', fn) steps make tool calls; ('submit', payload-or-fn) ends the turn."""
     expect = scenario.expect
+    flaw = flaw_for(scenario) if sloppy else None
     reads: list[Call] = [(c.tool, c.args) for c in scenario.oracle.calls]
     if expect.outcome in ("proposal", "infeasible"):
         assert expect.changes is not None
@@ -70,10 +83,13 @@ def steps_for(scenario: Scenario) -> list[tuple[str, Step | dict[str, Any]]]:
             ("calls", lambda m: _edit_calls(expect.changes)),
             ("calls", lambda m: [("reschedule", {"draft_id": "D1"})]),
         ]
-        if expect.outcome == "proposal":
+        if expect.outcome == "proposal" and flaw == "skips_comparison":
+            steps.append(("submit", {"summary": "The change is in the draft; please review it.", "draft_id": "D1"}))
+        elif expect.outcome == "proposal":
+            extra = " This should save roughly 45 minutes overall." if flaw == "invents_a_number" else ""
             steps += [
                 ("calls", lambda m: [("compare_schedules", {"after": "D1"})]),
-                ("submit", lambda m: {"summary": _proposal_summary(m), "draft_id": "D1"}),
+                ("submit", lambda m: {"summary": _proposal_summary(m) + extra, "draft_id": "D1"}),
             ]
         else:
             steps.append(("submit", {"summary": scenario.oracle.say, "draft_id": "D1"}))
@@ -86,16 +102,23 @@ def steps_for(scenario: Scenario) -> list[tuple[str, Step | dict[str, Any]]]:
 
 
 class OracleClient:
-    """Quacks like ``anthropic.Anthropic`` for the one call the loop makes."""
+    """Quacks like ``anthropic.Anthropic`` for the one call the loop makes.
 
-    def __init__(self, scenario: Scenario) -> None:
-        self._steps = steps_for(scenario)
+    ``usage`` and ``delay_s`` make each call report tokens and take time, so a comparison between
+    two scripted agents has something to compare. ``sloppy`` adds the deterministic flaws of
+    ``flaw_for``. None of this resembles a real model; it only exercises the reporting.
+    """
+
+    def __init__(self, scenario: Scenario, *, sloppy: bool = False, usage: tuple[int, int] = (0, 0), delay_s: float = 0.0) -> None:
+        self._steps = steps_for(scenario, sloppy)
+        self._usage, self._delay_s = usage, delay_s
         self._n = 0
         self.messages = self
 
     def create(self, **kwargs: Any) -> Message:
         kind, payload = self._steps.pop(0)
         self._n += 1
+        time.sleep(self._delay_s)
         if kind == "calls":
             blocks = [
                 ToolUseBlock(type="tool_use", id=f"oracle_{self._n}_{k}", name=name, input=args)
@@ -106,5 +129,6 @@ class OracleClient:
             blocks = [ToolUseBlock(type="tool_use", id=f"oracle_{self._n}_submit", name=SUBMIT, input=body)]
         return Message(
             id=f"msg_oracle_{self._n}", type="message", role="assistant", model="oracle", content=blocks,
-            stop_reason="tool_use", stop_sequence=None, usage=Usage(input_tokens=0, output_tokens=0),
+            stop_reason="tool_use", stop_sequence=None,
+            usage=Usage(input_tokens=self._usage[0], output_tokens=self._usage[1]),
         )

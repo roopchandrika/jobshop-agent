@@ -98,6 +98,14 @@ the Phase 0 review and take precedence over the spec where they differ.
   grades is treated as untrusted. `--oracle` runs a scripted reference agent: it tests the harness and
   says nothing about any model. A new check or scenario needs a bad-agent test that makes it fail.
   `pyyaml` was added in this phase (it was on the approved list).
+- Phase 6 observability (see `docs/OBSERVABILITY.md`): trace format is versioned (`agent/trace.py`,
+  `TRACE_VERSION`); `llm_call` has `step_cost_usd` (per call) and `total_cost_usd`; costs are `null`
+  without prices, never 0. Prices are never built in: `--price IN,OUT` or `JOBSHOP_PRICE_*`, per model
+  (`agent/pricing.py`). `evals compare` runs the same scenarios, shop, limits and judge on each model,
+  refuses a judge that is one of the models, and never lets one model's prices (or `JOBSHOP_MAX_COST_USD`)
+  leak into another. Quality differences are reported with a Wilson interval and a paired sign test
+  (`evals/stats.py`): do not describe a model as better on 29 scenarios unless the report supports it.
+  `compare --demo` uses scripted agents and says nothing about real models.
 
 **Non-goals:** setup times, workers/labor, preemption, buffers, auth, multi-user.
 
@@ -115,6 +123,7 @@ src/jobshop/evals/   scenario (YAML schema), shop (fixture), checks, numbers, ju
                      oracle (scripted reference agent), cli     -> python -m jobshop.evals run|build-shop
 evals/               shop.json (committed fixture plant + baseline), scenarios/*.yaml, results/ (gitignored)
 docs/EVALS.md        what is measured, how the eval itself is tested, what it does not show
+docs/OBSERVABILITY.md  trace format (per-step tokens/latency/cost), trace_report, comparing models, caveats
 docs/MCP.md          how to connect Claude Desktop / Claude Code (what is and isn't verified)
 docs/SAFETY.md       threat model: layers, what is tested, residual risks
 tests/injection.py   shared poisoned-note scenario + checker (scripted and live tests use the same one)

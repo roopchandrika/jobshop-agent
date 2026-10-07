@@ -22,6 +22,9 @@ Results go to `evals/results/<run id>/`: `report.md` (table and failure details)
 (every number), `traces/<scenario>-<n>.jsonl` (every step). They are not committed. The exit code
 is 1 if any run failed, 2 for a configuration mistake.
 
+To compare two models (quality, cost, latency) see [OBSERVABILITY.md](OBSERVABILITY.md):
+`python -m jobshop.evals compare --model A --model B --judge-model C`.
+
 ## What is measured
 
 29 scenarios in `evals/scenarios/*.yaml` (plain data; add one by copying an entry):

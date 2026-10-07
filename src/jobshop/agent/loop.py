@@ -28,7 +28,8 @@ from typing import Any, Literal
 import anthropic
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from jobshop.agent.trace import Tracer
+from jobshop.agent.pricing import Prices
+from jobshop.agent.trace import TRACE_VERSION, Tracer
 from jobshop.tools.errors import ToolError
 from jobshop.tools.functions import DraftId
 from jobshop.tools.outcome import draft_outcome
@@ -96,6 +97,12 @@ class AgentConfig:
         if self.max_cost_usd is not None and None in (self.price_input_per_mtok, self.price_output_per_mtok):
             raise ValueError("a cost budget needs both token prices (input and output per million tokens)")
 
+    @property
+    def prices(self) -> Prices | None:
+        if self.price_input_per_mtok is None or self.price_output_per_mtok is None:
+            return None
+        return Prices(self.price_input_per_mtok, self.price_output_per_mtok)
+
 
 Status = Literal["answered", "no_final_response", "step_limit", "budget_exceeded", "api_error"]
 
@@ -109,6 +116,8 @@ class TurnResult:
     input_tokens: int
     output_tokens: int
     cost_usd: float | None
+    llm_ms: int = 0   # time spent waiting for the model, summed over its calls
+    tool_ms: int = 0  # time spent running tools (the solver dominates this)
 
 
 def run_turn(
@@ -123,21 +132,22 @@ def run_turn(
     tracer = tracer or Tracer()
     start_len = len(messages)
     messages.append({"role": "user", "content": user_text})
-    tracer.event("turn_start", user_text=user_text)
+    tracer.event("turn_start", trace_version=TRACE_VERSION, model=config.model, user_text=user_text)
 
     tools = registry.api_specs() + [SUBMIT_SPEC]
-    steps = nudges = in_tokens = out_tokens = 0
+    steps = nudges = in_tokens = out_tokens = llm_ms = tool_ms = 0
     last_text = ""
+    turn_began = time.perf_counter()
+    prices = config.prices
 
     def cost() -> float | None:
-        if config.price_input_per_mtok is None or config.price_output_per_mtok is None:
-            return None
-        return (in_tokens * config.price_input_per_mtok + out_tokens * config.price_output_per_mtok) / 1e6
+        return None if prices is None else prices.cost(in_tokens, out_tokens)
 
     def finish(status: Status, final: FinalResponse | None = None, text: str | None = None) -> TurnResult:
-        result = TurnResult(status, final, text, steps, in_tokens, out_tokens, cost())
+        result = TurnResult(status, final, text, steps, in_tokens, out_tokens, cost(), llm_ms, tool_ms)
         tracer.event("turn_end", status=status, steps=steps, input_tokens=in_tokens,
-                     output_tokens=out_tokens, cost_usd=result.cost_usd, text=text)
+                     output_tokens=out_tokens, cost_usd=result.cost_usd, llm_ms=llm_ms, tool_ms=tool_ms,
+                     wall_ms=round((time.perf_counter() - turn_began) * 1000), text=text)
         return result
 
     def stop_politely(status: Status, why: str) -> TurnResult:
@@ -166,9 +176,11 @@ def run_turn(
             )
         except anthropic.APIError as e:
             del messages[start_len:]  # nothing from this turn happened as far as the model knows
-            tracer.event("api_error", step=steps, error=f"{type(e).__name__}: {e}")
+            tracer.event("api_error", step=steps, error=f"{type(e).__name__}: {e}",
+                         latency_ms=round((time.perf_counter() - began) * 1000))
             return finish("api_error", text=f"The model API failed: {type(e).__name__}: {e}")
         latency_ms = round((time.perf_counter() - began) * 1000)
+        llm_ms += latency_ms
 
         in_tokens += response.usage.input_tokens
         out_tokens += response.usage.output_tokens
@@ -178,9 +190,15 @@ def run_turn(
         texts = [b["text"] for b in content if b["type"] == "text"]
         last_text = "\n".join(texts) or last_text
         tracer.event(
-            "llm_call", step=steps, model=config.model, stop_reason=response.stop_reason,
+            "llm_call", step=steps, model=config.model, response_id=getattr(response, "id", None),
+            stop_reason=response.stop_reason,
             input_tokens=response.usage.input_tokens, output_tokens=response.usage.output_tokens,
-            latency_ms=latency_ms, cost_usd=cost(), text=texts, tool_calls=[b["name"] for b in tool_uses],
+            # Recorded so a surprising bill can be explained; the cost below ignores them (no caching is used).
+            cache_read_tokens=getattr(response.usage, "cache_read_input_tokens", None) or 0,
+            cache_write_tokens=getattr(response.usage, "cache_creation_input_tokens", None) or 0,
+            latency_ms=latency_ms,
+            step_cost_usd=None if prices is None else prices.cost(response.usage.input_tokens, response.usage.output_tokens),
+            total_cost_usd=cost(), text=texts, tool_calls=[b["name"] for b in tool_uses],
         )
 
         if not tool_uses:
@@ -202,7 +220,9 @@ def run_turn(
                 payload, result = _handle_submit(block, alone=len(tool_uses) == 1)
                 results.append(result)
             else:
-                results.append(_run_tool(registry, block, tracer, steps))
+                result, took_ms = _run_tool(registry, block, tracer, steps)
+                results.append(result)
+                tool_ms += took_ms
         messages.append({"role": "user", "content": results})
 
         if payload is not None:
@@ -257,7 +277,8 @@ def _handle_submit(block: dict[str, Any], alone: bool) -> tuple[AnswerPayload | 
     return payload, _result(block, "Answer delivered to the planner.")
 
 
-def _run_tool(registry: ToolRegistry, block: dict[str, Any], tracer: Tracer, step: int) -> dict[str, Any]:
+def _run_tool(registry: ToolRegistry, block: dict[str, Any], tracer: Tracer, step: int) -> tuple[dict[str, Any], int]:
+    """Run one tool call; returns the tool_result block and how long the tool took (ms)."""
     began = time.perf_counter()
     is_error = False
     try:
@@ -268,8 +289,9 @@ def _run_tool(registry: ToolRegistry, block: dict[str, Any], tracer: Tracer, ste
     except Exception as e:  # a bug in a tool must not kill the chat
         tracer.event("tool_exception", step=step, tool=block["name"], traceback=traceback.format_exc())
         content, is_error = {"error": f"internal error in {block['name']} ({type(e).__name__})"}, True
+    latency_ms = round((time.perf_counter() - began) * 1000)
     tracer.event(
         "tool_call", step=step, tool=block["name"], arguments=block["input"], is_error=is_error,
-        result=content, latency_ms=round((time.perf_counter() - began) * 1000),
+        result=content, latency_ms=latency_ms,
     )
-    return _result(block, content, is_error)
+    return _result(block, content, is_error), latency_ms

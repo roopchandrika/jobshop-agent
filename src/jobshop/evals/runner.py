@@ -39,6 +39,9 @@ class ScenarioResult:
     output_tokens: int = 0
     cost_usd: float | None = None
     wall_s: float = 0.0
+    model: str | None = None
+    llm_ms: int = 0   # waiting for the model
+    tool_ms: int = 0  # running tools (mostly the solver)
     tools_called: list[str] = field(default_factory=list)
     tool_errors: int = 0
     answer: dict[str, Any] | None = None
@@ -66,7 +69,7 @@ def execute(
         client, ToolRegistry(ctx), build_system_prompt(ctx), messages, scenario.request, config,
         Tracer(path=trace_path, session_id=f"{scenario.id}#{attempt}"),
     )
-    return Run(scenario, attempt, ctx, messages, turn, version_at_start, time.perf_counter() - started, trace_path)
+    return Run(scenario, attempt, ctx, messages, turn, version_at_start, time.perf_counter() - started, trace_path, config.model)
 
 
 def _checks_to_dict(checks: dict[str, CheckResult]) -> dict[str, dict[str, Any]]:
@@ -86,6 +89,7 @@ def score(run: Run, judge: tuple[Any, str] | None) -> ScenarioResult:
         passed=all(c.passed for c in checks.values() if c.passed is not None),
         steps=run.turn.steps, input_tokens=run.turn.input_tokens, output_tokens=run.turn.output_tokens,
         cost_usd=run.turn.cost_usd, wall_s=round(run.wall_s, 2),
+        model=run.model, llm_ms=run.turn.llm_ms, tool_ms=run.turn.tool_ms,
         tools_called=[c.name for c in run.calls], tool_errors=sum(c.is_error for c in run.calls),
         answer=None if final is None else {
             "summary": final.summary, "clarifying_question": final.clarifying_question,

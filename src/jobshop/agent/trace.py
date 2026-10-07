@@ -1,9 +1,17 @@
 """JSONL step logging: one JSON object per line, one file per session.
 
-Every record has ``ts``, ``session`` and ``event``. The loop emits ``turn_start``, ``llm_call``
-(tokens and latency), ``tool_call`` (arguments, full result, latency) and ``turn_end``. The
-token, latency and cost fields are present from the start so Phase 6 extends this format
-instead of replacing it.
+Every record has ``ts``, ``session`` and ``event``. Events, and the fields that matter:
+
+* ``turn_start``  trace_version, model, user_text
+* ``llm_call``    step, model, response_id, stop_reason, input_tokens, output_tokens,
+                  cache_read_tokens, cache_write_tokens, latency_ms, step_cost_usd,
+                  total_cost_usd (running total for the turn), text, tool_calls
+* ``tool_call``   step, tool, arguments, is_error, result, latency_ms
+* ``turn_end``    status, steps, input_tokens, output_tokens, cost_usd, llm_ms, tool_ms, wall_ms, text
+* ``api_error``, ``tool_exception``, ``dropped_block`` for the unhappy paths
+
+Costs are ``null`` when no prices were supplied: the system never guesses a price. Read a trace
+with ``python -m jobshop.agent.trace_report FILE``.
 """
 
 from __future__ import annotations
@@ -14,6 +22,8 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+TRACE_VERSION = 2  # 1 was Phase 2 (cost_usd on llm_call was a running total); 2 adds step_cost_usd and timing totals
 
 
 class Tracer:

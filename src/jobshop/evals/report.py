@@ -12,7 +12,7 @@ from jobshop.evals.runner import ScenarioResult, result_dicts
 CHECKS = ("outcome", "tools", "changes", "validator", "numbers", "judge")
 
 
-def _tally(results: list[ScenarioResult], check: str) -> tuple[int, int]:
+def tally(results: list[ScenarioResult], check: str) -> tuple[int, int]:
     """(passed, applicable) for one check. A check that did not apply (or could not run) is left out."""
     applicable = [r.checks[check]["passed"] for r in results if check in r.checks and r.checks[check]["passed"] is not None]
     return sum(applicable), len(applicable)
@@ -27,7 +27,7 @@ def summarize(results: list[ScenarioResult]) -> dict[str, Any]:
         return {
             "runs": len(rs),
             "passed": sum(r.passed for r in rs),
-            "checks": {c: _tally(rs, c) for c in CHECKS},
+            "checks": {c: tally(rs, c) for c in CHECKS},
         }
 
     costs = [r.cost_usd for r in results if r.cost_usd is not None]
