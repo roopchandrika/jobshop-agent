@@ -1,5 +1,7 @@
 # Job-shop disruption assistant
 
+[![tests](https://github.com/roopchandrika/jobshop-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/roopchandrika/jobshop-agent/actions/workflows/ci.yml)
+
 A planner describes a factory disruption in plain language ("machine M2 is down from 11:00 to 14:00").
 An LLM agent turns that into precise changes, asks a constraint solver to re-plan, and explains what
 the change does. **The agent can try changes but can never apply them**: a person reviews the result
