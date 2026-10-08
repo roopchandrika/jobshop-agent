@@ -175,8 +175,10 @@ function renderProposal() {
   facts.append(h("div", {}, `${diff.moved_operation_count} operations move (${diff.machine_change_count} change machine).`));
   facts.append(h("div", {}, `Newly late: ${diff.newly_late_orders.join(", ") || "none"}. No longer late: ${diff.no_longer_late_orders.join(", ") || "none"}.`));
   const after = p.comparison.solve_after;
-  facts.append(h("div", {}, `Solver: ${after.status}; tardiness ${after.tardiness_proven_optimal ? "proven optimal" : "not proven optimal"}; ` +
-    `fewest moves ${after.stability_proven_optimal ? "proven" : "not proven"}.`));
+  facts.append(h("div", {}, `Solved for: ${p.goal_label}.`));
+  // "fewest moves proven" only means something when moving little was the goal right after lateness.
+  const moves = p.goal === "fewest_moves" ? `; fewest moves ${after.stability_proven_optimal ? "proven" : "not proven"}` : "";
+  facts.append(h("div", {}, `Solver: ${after.status}; tardiness ${after.tardiness_proven_optimal ? "proven optimal" : "not proven optimal"}${moves}.`));
   if (p.comparison.confidence_note) facts.append(h("div", {}, p.comparison.confidence_note));
 
   $("approve").onclick = () => decide("/api/approve", { draft_id: p.draft_id, digest: p.digest });

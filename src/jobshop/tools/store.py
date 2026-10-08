@@ -55,6 +55,7 @@ class Draft:
     changes: list[str] = field(default_factory=list)  # human-readable, for display
     schedule: Schedule | None = None  # None until `reschedule` runs
     interrupted: list[Assignment] = field(default_factory=list)  # from the last reschedule
+    goal: str = "fewest_moves"  # what the last reschedule optimised after lateness (see tools.functions.RescheduleInput)
 
     @property
     def solved(self) -> bool:
@@ -194,6 +195,7 @@ class Store:
                     "changes": d.changes,
                     "schedule": d.schedule.model_dump(mode="json") if d.schedule else None,
                     "interrupted": [a.model_dump(mode="json") for a in d.interrupted],
+                    "goal": d.goal,
                 }
                 for d in self._drafts.values()
             },
@@ -218,6 +220,7 @@ class Store:
                 changes=list(d["changes"]),
                 schedule=Schedule.model_validate(d["schedule"]) if d["schedule"] else None,
                 interrupted=[Assignment.model_validate(a) for a in d["interrupted"]],
+                goal=d.get("goal", "fewest_moves"),  # state files from before the goal existed
             )
             for did, d in data["drafts"].items()
         }

@@ -6,7 +6,7 @@ import pytest
 from jobshop.agent.cli import ChatSession, ConfigError, agent_config_from_env, build_context, main
 from jobshop.agent.loop import AgentConfig
 from jobshop.core.generator import GeneratorSettings
-from tests.fake_llm import FakeClient, message, submit, tool
+from tests.fake_llm import FakeClient, last_text, message, submit, tool
 from tests.helpers import FAST, SMALL
 
 CONFIG = AgentConfig(model="fake-model")
@@ -72,7 +72,7 @@ def test_declining_leaves_the_live_plan_alone_and_tells_the_model_next_turn(ctx)
     assert ctx.store.committed.version == 1 and "Not committed" in s.output
 
     s.chat.handle("ok thanks")
-    sent = s.client.requests[-1]["messages"][-1]["content"]
+    sent = last_text(s.client.requests[-1])
     assert "Notice from the scheduling system, not from the planner" in sent
     assert "chose NOT to commit draft D1" in sent and sent.endswith("ok thanks")
 
@@ -135,7 +135,7 @@ def test_clock_command_moves_time_forward_and_warns_about_drafts(ctx):
     s.chat.handle("/clock 2026-01-05 12:00")
     assert ctx.store.committed.instance.now == 360 and ctx.store.committed.version == 2
     s.chat.handle("anything")
-    assert "plant clock was moved to 2026-01-05 12:00" in s.client.requests[0]["messages"][-1]["content"]
+    assert "plant clock was moved to 2026-01-05 12:00" in last_text(s.client.requests[0])
     assert "Plant clock: 2026-01-05 12:00" in s.client.requests[0]["system"]
 
 

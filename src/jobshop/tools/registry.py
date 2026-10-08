@@ -101,8 +101,9 @@ TOOLS: list[Tool] = [
         "time limit. Operations running on a machine that goes down are interrupted and "
         "restart; they are listed in the result. Check solve.status: only OPTIMAL means proven "
         "best; FEASIBLE means valid but a better schedule may exist. solve."
-        "stability_proven_optimal says whether the number of moved operations is proven minimal.",
-        f.DraftIdInput, f.reschedule,
+        "stability_proven_optimal says whether the number of moved operations is proven minimal "
+        "(it is null with goal 'earliest_finish', where finishing early comes before moving little).",
+        f.RescheduleInput, f.reschedule,
     ),
     Tool(
         "compare_schedules",

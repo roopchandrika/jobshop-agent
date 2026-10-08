@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StrictBool, WithJsonSchema
 
@@ -208,6 +208,8 @@ class ListOrdersInput(Input):
 class OrdersOut(View):
     source: str
     now: str
+    order_count: int  # how many rows are listed, so nobody has to count them
+    on_time_count: int | None  # of those rows; None when there is no solved schedule to judge by
     orders: list[OrderRowView]
 
 
@@ -220,7 +222,8 @@ def list_orders(ctx: ToolContext, a: ListOrdersInput) -> OrdersOut:
     rows = [views.order_row(inst, o, kpis) for o in inst.orders if a.family in (None, o.family)]
     if a.late_only:
         rows = [r for r in rows if (r.tardiness_min or 0) > 0]
-    return OrdersOut(source=src.label, now=fmt(inst, inst.now), orders=rows)
+    on_time = None if kpis is None else sum(1 for r in rows if (r.tardiness_min or 0) == 0)
+    return OrdersOut(source=src.label, now=fmt(inst, inst.now), order_count=len(rows), on_time_count=on_time, orders=rows)
 
 
 class GetOrderInput(Input):
@@ -442,8 +445,21 @@ class InterruptedView(View):
     had_started_at: str
 
 
+class RescheduleInput(DraftIdInput):
+    goal: Literal["fewest_moves", "earliest_finish"] = Field(
+        "fewest_moves",
+        description=(
+            "Both goals avoid late orders first. 'fewest_moves' (default) then moves the fewest operations "
+            "and finishes as early as that allows. 'earliest_finish' then finishes as early as possible and "
+            "moves as few operations as that allows. Use 'earliest_finish' only if the planner asks for the "
+            "earliest finish or says disturbing the plan matters less."
+        ),
+    )
+
+
 class RescheduleOut(View):
     draft_id: str
+    goal: str
     feasible: bool
     solve: SolveView
     frozen_operation_count: int
@@ -452,13 +468,14 @@ class RescheduleOut(View):
     message: str
 
 
-def reschedule(ctx: ToolContext, a: DraftIdInput) -> RescheduleOut:
+def reschedule(ctx: ToolContext, a: RescheduleInput) -> RescheduleOut:
     draft = _live_draft(ctx, a.draft_id)
     committed = ctx.store.committed
     plan = plan_reschedule(draft.instance, committed.schedule)
     schedule = solve(
         draft.instance, frozen=plan.frozen, config=ctx.solver_config,
         hint=committed.schedule, stay_close_to=committed.schedule,
+        earliest_finish=a.goal == "earliest_finish",
     )
     feasible = schedule.solve_info.status in (SolveStatus.OPTIMAL, SolveStatus.FEASIBLE)
 
@@ -470,6 +487,7 @@ def reschedule(ctx: ToolContext, a: DraftIdInput) -> RescheduleOut:
 
     draft.schedule = schedule
     draft.interrupted = plan.interrupted
+    draft.goal = a.goal
     inst = draft.instance
     status = schedule.solve_info.status
     if feasible:
@@ -483,6 +501,7 @@ def reschedule(ctx: ToolContext, a: DraftIdInput) -> RescheduleOut:
 
     return RescheduleOut(
         draft_id=draft.id,
+        goal=a.goal,
         feasible=feasible,
         solve=views.solve_view(schedule.solve_info),
         frozen_operation_count=len(plan.frozen),

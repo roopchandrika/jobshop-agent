@@ -13,20 +13,24 @@ uv run python -m jobshop.agent.trace_report logs/traces/20260105-120000.jsonl
 ```
 
 ```
-turn  step  in tok  out tok  llm ms     cost  tool ms  tools
-------------------------------------------------------------
-   1     1    1800      250      11  $0.0092        0  create_draft
-   1     3    1800      250      11  $0.0092      499  reschedule
+turn  step  in tok  cached  out tok  llm ms     cost  tool ms  tools
+---------------------------------------------------------------------
+   1     1       4       0      115    2161      n/a        1  list_orders, get_schedule
+   1     2       2    5825       52    1622      n/a        0  create_draft
+   1     3       2    8337      129    1117      n/a        2  add_rush_order
    ...
-5 model call(s): 9000 in + 1250 out tokens, cost $0.0457, model time 0.1 s, tool time 0.5 s
+6 model call(s): 14 in + 741 out tokens (+ 41435 read from cache, 11747 written to it), cost n/a, model time 9.6 s, tool time 0.1 s
 ```
+
+(That is a real run. `in tok` counts only input that was not served from the prompt cache, as the API
+reports it; `cached` is the input read back from the cache.)
 
 | Event | Fields that matter |
 |---|---|
 | `turn_start` | `trace_version`, `model`, `user_text` |
 | `llm_call` | `step`, `model`, `response_id`, `stop_reason`, `input_tokens`, `output_tokens`, `latency_ms`, **`step_cost_usd`**, `total_cost_usd`, `cache_read_tokens`, `cache_write_tokens`, `text`, `tool_calls` |
 | `tool_call` | `step`, `tool`, `arguments`, `is_error`, `result` (in full), `latency_ms` |
-| `turn_end` | `status`, `steps`, token totals, `cost_usd`, `llm_ms`, `tool_ms`, `wall_ms` |
+| `turn_end` | `status`, `steps`, token totals (including `cache_read_tokens` and `cache_write_tokens`), `cost_usd`, `llm_ms`, `tool_ms`, `wall_ms` |
 | `api_error`, `tool_exception`, `dropped_block` | the unhappy paths, with how long a failed call took |
 
 Things worth knowing:
@@ -40,10 +44,17 @@ Things worth knowing:
 - **Model time and tool time are separate.** `llm_ms` is waiting for the model; `tool_ms` is
   running tools, which is almost entirely the solver (`reschedule`). When a turn is slow, this says
   whether to blame the model or the solver, and only one of those is the model's fault.
-- **Tokens grow with every step.** The whole conversation and the tool definitions are re-sent on
-  each model call, so a 5-step turn pays for the system prompt five times. Prompt caching would cut
-  that; it is not implemented, and the cost figures assume it is not in use (cache token counts are
-  recorded so a surprise would be visible).
+- **Prompt caching is on.** The whole conversation and the tool definitions are re-sent on every model
+  call, so a 5-step turn used to pay for the 5,000-token system prompt and tools five times. The loop now
+  puts a cache marker on the last tool and on the newest message block, so each later call in a turn (and
+  the next turn, if it comes soon enough) reads that prefix back from the cache at a fraction of the
+  price. The stored conversation never contains the markers, only the request does. Switch it off with
+  `AgentConfig(prompt_caching=False)`.
+- **Cached tokens are priced separately.** The API reports them apart from `input_tokens`. A read costs
+  0.1 times and a write 1.25 times your input price (the usual multiples for the 5-minute cache), or
+  whatever `Prices(cache_read_per_mtok=..., cache_write_per_mtok=...)` says. They count towards the token
+  budget, and the comparison's "tokens per run (in)" includes them. Traces from before this change have no
+  cache fields and still read, as zero.
 - **Traces contain full tool results and the planner's text.** They are local and gitignored. They
   never contain an approval token or API key (tested), but treat them as private anyway.
 
@@ -93,6 +104,5 @@ judge. Output goes to `evals/results/<run>/`: `comparison.md` (the side-by-side)
 
 ## Deliberately not built
 
-Dashboards, OpenTelemetry export, MCP-server tracing (the MCP path makes no model calls, so there
-are no tokens to count), and prompt caching. Each is a reasonable next step; none is needed to
-answer the two questions above.
+Dashboards, OpenTelemetry export, and MCP-server tracing (the MCP path makes no model calls, so there
+are no tokens to count). Each is a reasonable next step; none is needed to answer the two questions above.

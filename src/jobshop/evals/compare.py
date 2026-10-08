@@ -44,7 +44,7 @@ def run_comparison(
     scenarios: list[Scenario],
     models: list[ModelSpec],
     base_config: AgentConfig,
-    shop: tuple[Instance, Schedule],
+    shop: tuple[Instance, Schedule] | dict[str, tuple[Instance, Schedule]],
     solver_config: SolverConfig,
     *,
     judge: tuple[Any, str] | None = None,
@@ -94,7 +94,8 @@ def model_metrics(results: list[ScenarioResult]) -> dict[str, Any]:
         "cost_total_usd": total_cost,
         "cost_per_run_usd": total_cost / len(results) if priced and results else None,
         "cost_per_pass_usd": total_cost / passed if priced and passed else None,
-        "input_tokens_per_run": mean([r.input_tokens for r in results]),
+        # All input the model processed, cached or not (cached input is billed at a lower rate).
+        "input_tokens_per_run": mean([r.input_tokens + r.cache_read_tokens + r.cache_write_tokens for r in results]),
         "output_tokens_per_run": mean([r.output_tokens for r in results]),
         "steps_per_run": mean([r.steps for r in results]),
         "tool_errors_per_run": mean([r.tool_errors for r in results]),

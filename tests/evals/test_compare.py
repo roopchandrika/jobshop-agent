@@ -157,8 +157,8 @@ def test_two_priced_models_are_each_costed_at_their_own_prices(subset, shop):
     assert sloppy.cost_usd == pytest.approx(sloppy.steps * (500 * 1.0 + 100 * 5.0) / 1e6)
 
 
-def test_the_sloppy_agent_fails_exactly_where_it_is_scripted_to(scenarios, shop):
-    out = run_comparison(list(scenarios.values()), models(), AgentConfig(model="x"), shop, FAST)
+def test_the_sloppy_agent_fails_exactly_where_it_is_scripted_to(scenarios, shops):
+    out = run_comparison(list(scenarios.values()), models(), AgentConfig(model="x"), shops, FAST)
     failing = {r.id for r in out["sloppy"] if not r.passed}
     assert failing == {s.id for s in scenarios.values() if flaw_for(s)} and failing  # and nothing else
     assert all(r.passed for r in out["careful"])

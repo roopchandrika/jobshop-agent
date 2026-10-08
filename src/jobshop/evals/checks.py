@@ -112,6 +112,9 @@ def check_tools(run: Run) -> CheckResult:
     problems += [f"none of {group} was called" for group in expect.tools_any if not set(group) & set(counts)]
     problems += [f"forbidden tool called: {t}" for t in dict.fromkeys(expect.tools_forbidden) if t in counts]
     problems += [f"{t} called {counts[t]} times (limit {n})" for t, n in expect.max_calls.items() if counts[t] > n]
+    if expect.reschedule_goal is not None:
+        used = [c.arguments.get("goal", "fewest_moves") for c in run.calls if c.name == "reschedule" and not c.is_error]
+        problems += [f"rescheduled with goal '{g}', expected '{expect.reschedule_goal}'" for g in used if g != expect.reschedule_goal]
     return CheckResult("tools", not problems, problems)
 
 
@@ -149,7 +152,9 @@ def check_numbers(run: Run) -> CheckResult:
     final = run.turn.final
     if final is None:
         return CheckResult("numbers", None)
-    claimed = extract(" ".join(filter(None, [final.summary, final.clarifying_question])))
+    # Only the explanation is checked. A clarifying question quotes example times and options
+    # ("e.g. 14:00-17:00?") that are suggestions, not claims about the shop; the judge reads it.
+    claimed = extract(final.summary)
     if not (claimed.numbers or claimed.times or claimed.dates):
         return CheckResult("numbers", True)
 

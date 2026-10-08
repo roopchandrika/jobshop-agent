@@ -148,5 +148,7 @@ def proposal(ctx: ToolContext, draft_id: str | None) -> dict[str, Any] | None:
         "draft_id": draft.id,
         "digest": proposal_digest(draft.instance, draft.schedule),
         "changes": list(draft.changes),
+        "goal": draft.goal,
+        "goal_label": views.GOAL_LABELS[draft.goal],
         "comparison": comparison,
     }

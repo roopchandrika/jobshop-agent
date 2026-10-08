@@ -22,7 +22,7 @@ from jobshop.evals.oracle import OracleClient
 from jobshop.evals.report import render_table, summarize, write_results
 from jobshop.evals.runner import ScenarioResult, run_suite
 from jobshop.evals.scenario import Scenario, load_scenarios
-from jobshop.evals.shop import build_shop, load_shop
+from jobshop.evals.shop import SHOPS, build_shop, load_shops, shop_path
 
 # Per-model money settings must never leak from one model to another through the environment.
 _ENV_MONEY = ("JOBSHOP_PRICE_INPUT_PER_MTOK", "JOBSHOP_PRICE_OUTPUT_PER_MTOK", "JOBSHOP_MAX_COST_USD")
@@ -48,9 +48,15 @@ def _scenarios(args: argparse.Namespace) -> list[Scenario]:
         scenarios = [s for s in scenarios if s.id in wanted or s.category in wanted]
         if not scenarios:
             raise ConfigError(f"--only {args.only} matches no scenario id or category")
-    if not (args.evals_dir / "shop.json").exists():
-        raise ConfigError(f"{args.evals_dir / 'shop.json'} is missing; create it with: python -m jobshop.evals build-shop")
     return scenarios
+
+
+def _shops(args: argparse.Namespace, scenarios: list[Scenario]):
+    """The fixtures the chosen scenarios need (and no others)."""
+    try:
+        return load_shops(args.evals_dir, {s.shop for s in scenarios})
+    except (ValueError, FileNotFoundError) as e:
+        raise ConfigError(str(e)) from None
 
 
 def _run_id(label: str) -> str:
@@ -91,6 +97,7 @@ def _run(args: argparse.Namespace) -> int:
                 raise ConfigError("no judge model: set ANTHROPIC_JUDGE_MODEL or pass --judge-model (or --no-judge)")
             if judge_model == model:
                 raise ConfigError("the judge must be a different model from the one under test")
+        shops = _shops(args, scenarios)
     except (ConfigError, ValueError) as e:
         print(f"Configuration error: {e}", file=sys.stderr)
         return 2
@@ -103,7 +110,7 @@ def _run(args: argparse.Namespace) -> int:
 
     results = run_suite(
         scenarios, OracleClient if args.oracle else (lambda s: client), config,
-        load_shop(args.evals_dir / "shop.json"), SolverConfig(time_limit_s=args.solve_seconds, num_workers=1, seed=0),
+        shops, SolverConfig(time_limit_s=args.solve_seconds, num_workers=1, seed=0),
         judge=judge, repeat=args.repeat, trace_dir=out_dir / "traces", progress=_progress(len(scenarios) * args.repeat),
     )
     meta = {"run_id": run_id, "model": model, "judge_model": judge_model, "scenarios": len(scenarios),
@@ -153,6 +160,7 @@ def _compare(args: argparse.Namespace) -> int:
             client = anthropic.Anthropic()
             models = [ModelSpec(n, lambda s: client, prices.get(n)) for n in names]
             base = agent_config_from_env({**env, "ANTHROPIC_MODEL": names[0]})
+        shops = _shops(args, scenarios)
     except (ConfigError, ValueError) as e:
         print(f"Configuration error: {e}", file=sys.stderr)
         return 2
@@ -166,7 +174,7 @@ def _compare(args: argparse.Namespace) -> int:
     print(f"Comparing {', '.join(names)} on {len(scenarios)} scenario(s) x {args.repeat}; judge: {judge_model or 'off'}")
 
     results = run_comparison(
-        scenarios, models, base, load_shop(args.evals_dir / "shop.json"),
+        scenarios, models, base, shops,
         SolverConfig(time_limit_s=args.solve_seconds, num_workers=1, seed=0),
         judge=judge, repeat=args.repeat, out_dir=out_dir,
         progress=lambda model, r: print(f"[{model}] {r.id:<8} {'PASS' if r.passed else 'FAIL'}", flush=True),
@@ -179,10 +187,11 @@ def _compare(args: argparse.Namespace) -> int:
 
 
 def _build(args: argparse.Namespace) -> int:
-    path = args.evals_dir / "shop.json"
-    print(f"Solving the baseline plan (up to {args.solve_seconds:g} s) and writing {path} ...")
-    baseline = build_shop(path, args.solve_seconds)
-    print(f"Done: baseline status {baseline.solve_info.status.value}. Commit {path} so every run starts from the same plan.")
+    for name in args.shop or ["default"]:
+        path = shop_path(args.evals_dir, name)
+        print(f"Solving the baseline plan for the '{name}' shop (up to {args.solve_seconds:g} s) and writing {path} ...")
+        baseline = build_shop(path, args.solve_seconds, name)
+        print(f"Done: baseline status {baseline.solve_info.status.value}. Commit {path} so every run starts from the same plan.")
     return 0
 
 
@@ -216,6 +225,9 @@ def main(argv: list[str] | None = None) -> int:
 
     build = sub.add_parser("build-shop", help="regenerate the fixture shop and its baseline plan (slow)")
     build.add_argument("--solve-seconds", type=float, default=30.0)
+    build.add_argument("--shop", action="append", choices=list(SHOPS),
+                       help="which shop to rebuild; repeatable (default: the default shop). Rebuilding replaces a "
+                            "committed fixture, so results from before are no longer comparable")
     build.set_defaults(func=_build)
 
     args = parser.parse_args(argv)

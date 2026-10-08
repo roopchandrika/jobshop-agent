@@ -27,7 +27,8 @@ the code on purpose.
 | 7 | FastAPI backend and web UI with an Approve button, README | done | `42da3b3` |
 | after | Rename rules file, scripted demo, fixes from the first real answer | done | `35d212c`, `043bc28`, `2add2e2` |
 | after | First real-model eval (29 scenarios, no judge): 22/29, all misses in the numbers check | done | see [Honest status](#honest-status) |
-| next | LLM judge and the two-model comparison | **not run yet** | see [What is next](#what-is-next) |
+| after | Numbers-check scope, slack/count fields, `earliest_finish` goal, prompt caching, CI, 39 scenarios on two shops | done and tested; not yet measured on the full suite with a real model | this commit |
+| next | Judged, repeated two-model comparison (Sonnet vs Opus, judge Fable) | **running; results to be added** | see [What is next](#what-is-next) |
 
 ## Phase by phase
 
@@ -120,7 +121,7 @@ the code on purpose.
 | Phase 5 | 527 |
 | Phase 6 | 592 |
 | Phase 7 | 663 |
-| now | **679** (2 more are opt-in and call the real API) |
+| now | **749** (2 more are opt-in and call the real API) |
 
 About 6,300 lines of source, 5,800 lines of tests.
 
@@ -148,21 +149,17 @@ About 6,300 lines of source, 5,800 lines of tests.
 ## What is next
 
 **Now (small, cheap)**
-1. Decide whether the numbers check should scan clarifying questions (it flagged all four, none a wrong
-   number), and whether tool results should include a "slack" figure so the model need not subtract.
-2. Put real prices in `.env` so costs show as dollars.
+1. Put real prices in `.env` so costs show as dollars (the comparison is running with tokens only).
+2. Read the comparison and the judge's scores, fix what they show, and put the table in the README.
 
-**Next (real evidence; spends API credit, about 760k tokens per full run)**
-3. `uv run python -m jobshop.evals run` with `ANTHROPIC_JUDGE_MODEL` set to a *different* model, to score
-   explanation quality; then `--repeat 3` to see how much results vary.
-4. `uv run python -m jobshop.evals compare ...` on two models; paste the table into the README.
-5. Connect Claude Desktop or Claude Code to the MCP server and note what actually happens.
+**Next**
+3. Connect Claude Desktop or Claude Code to the MCP server and note what actually happens.
+4. Check the first GitHub Actions run (the workflow has only been exercised locally, on Windows).
 
 **Open design decisions**
-- The goal order is lateness, then fewest moves, then finish time. In the first real run that gave 8 moves
-  and a finish 3 hours later (14:25 to 17:30). Is that the right order, or should a tolerance trade a few extra
-  moves for an earlier finish?
-- Whether to add prompt caching (about 5k tokens are re-sent on every model call).
+- The default goal order is lateness, then fewest moves, then finish time. In the first real run that gave 8
+  moves and a finish 3 hours later (14:25 to 17:30). `earliest_finish` now swaps the last two goals on request;
+  whether the default should change, or a tolerance should trade a few moves for an earlier finish, is open.
 
 **Later (deliberately out of scope so far)**
 - Accounts and multi-user; a persistent store for the web app; setup times, labour and preemption in the model;

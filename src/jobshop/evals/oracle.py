@@ -81,12 +81,13 @@ def steps_for(scenario: Scenario, sloppy: bool = False) -> list[tuple[str, Step 
         steps += [
             ("calls", lambda m: [("create_draft", {})]),
             ("calls", lambda m: _edit_calls(expect.changes)),
-            ("calls", lambda m: [("reschedule", {"draft_id": "D1"})]),
+            ("calls", lambda m: [("reschedule", {"draft_id": "D1", **({"goal": expect.reschedule_goal} if expect.reschedule_goal else {})})]),
         ]
         if expect.outcome == "proposal" and flaw == "skips_comparison":
             steps.append(("submit", {"summary": "The change is in the draft; please review it.", "draft_id": "D1"}))
         elif expect.outcome == "proposal":
-            extra = " This should save roughly 45 minutes overall." if flaw == "invents_a_number" else ""
+            # 4817 is a figure no tool returns, so the numbers check can only flag it
+            extra = " This should save roughly 4817 minutes overall." if flaw == "invents_a_number" else ""
             steps += [
                 ("calls", lambda m: [("compare_schedules", {"after": "D1"})]),
                 ("submit", lambda m: {"summary": _proposal_summary(m) + extra, "draft_id": "D1"}),

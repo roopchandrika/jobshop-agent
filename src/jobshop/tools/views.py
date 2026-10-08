@@ -18,6 +18,12 @@ class View(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+GOAL_LABELS = {
+    "fewest_moves": "fewest operations moved, then earliest finish",
+    "earliest_finish": "earliest finish, then fewest operations moved",
+}
+
+
 def fmt(instance: Instance, minute: int) -> str:
     return instance.to_datetime(minute).strftime("%Y-%m-%d %H:%M")
 
@@ -33,12 +39,16 @@ class OrderRowView(View):
     due_at: str
     completion_at: str | None = None  # None when there is no solved schedule to read from
     tardiness_min: int | None = None
+    # Minutes between finishing and the due time (0 if it finishes late). Given so nobody has to subtract.
+    slack_min: int | None = None
 
 
 class KPIView(View):
     total_tardiness_min: int
     weighted_tardiness: int
+    total_orders: int
     late_orders: int
+    on_time_orders: int
     late_order_ids: list[str]
     # Minutes from the plan start (t0) until the last operation finishes.
     makespan_min: int
@@ -80,7 +90,11 @@ def order_row(instance: Instance, order: Order, kpis: KPIs | None) -> OrderRowVi
     if kpis is not None:
         match = next(k for k in kpis.orders if k.order_id == order.id)
         row = row.model_copy(
-            update={"completion_at": fmt(instance, match.completion), "tardiness_min": match.tardiness}
+            update={
+                "completion_at": fmt(instance, match.completion),
+                "tardiness_min": match.tardiness,
+                "slack_min": max(0, order.due - match.completion),
+            }
         )
     return row
 
@@ -90,7 +104,9 @@ def kpi_view(instance: Instance, kpis: KPIs, include_orders: bool = True) -> KPI
     return KPIView(
         total_tardiness_min=kpis.total_tardiness,
         weighted_tardiness=kpis.weighted_tardiness,
+        total_orders=len(kpis.orders),
         late_orders=kpis.late_orders,
+        on_time_orders=len(kpis.orders) - kpis.late_orders,
         late_order_ids=kpis.late_order_ids,
         makespan_min=kpis.makespan,
         all_orders_done_at=fmt(instance, kpis.makespan),

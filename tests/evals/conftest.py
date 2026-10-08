@@ -5,7 +5,7 @@ import pytest
 from jobshop.agent.loop import AgentConfig
 from jobshop.evals.runner import execute, score
 from jobshop.evals.scenario import load_scenarios
-from jobshop.evals.shop import load_shop
+from jobshop.evals.shop import load_shops
 from tests.fake_llm import FakeClient
 from tests.helpers import FAST
 
@@ -13,8 +13,14 @@ EVALS = Path(__file__).resolve().parents[2] / "evals"
 
 
 @pytest.fixture(scope="session")
-def shop():
-    return load_shop(EVALS / "shop.json")
+def shops():
+    return load_shops(EVALS, {"default", "tight"})
+
+
+@pytest.fixture(scope="session")
+def shop(shops):
+    """The default shop, for tests that do not care which one."""
+    return shops["default"]
 
 
 @pytest.fixture(scope="session")
@@ -23,11 +29,12 @@ def scenarios():
 
 
 @pytest.fixture
-def play(shop, scenarios):
+def play(shops, scenarios):
     """play("sd-01", script) runs a scripted agent through the real harness and scores it (no judge)."""
 
     def run(scenario_id, script, judge=None):
-        run_ = execute(scenarios[scenario_id], FakeClient(script), AgentConfig(model="fake"), shop, FAST)
+        scenario = scenarios[scenario_id]
+        run_ = execute(scenario, FakeClient(script), AgentConfig(model="fake"), shops[scenario.shop], FAST)
         return score(run_, judge), run_
 
     return run

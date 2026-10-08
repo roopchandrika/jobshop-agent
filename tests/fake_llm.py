@@ -21,13 +21,19 @@ def tool(name: str, tool_id: str, **arguments: Any) -> ToolUseBlock:
     return ToolUseBlock(type="tool_use", id=tool_id, name=name, input=arguments)
 
 
-def message(*blocks, stop_reason: str | None = None, tokens_in: int = 100, tokens_out: int = 50) -> Message:
+def message(
+    *blocks, stop_reason: str | None = None, tokens_in: int = 100, tokens_out: int = 50,
+    cache_read: int = 0, cache_write: int = 0,
+) -> Message:
     if stop_reason is None:
         stop_reason = "tool_use" if any(b.type == "tool_use" for b in blocks) else "end_turn"
     return Message(
         id="msg_fake", type="message", role="assistant", model="fake-model",
         content=list(blocks), stop_reason=stop_reason, stop_sequence=None,
-        usage=Usage(input_tokens=tokens_in, output_tokens=tokens_out),
+        usage=Usage(
+            input_tokens=tokens_in, output_tokens=tokens_out,
+            cache_read_input_tokens=cache_read, cache_creation_input_tokens=cache_write,
+        ),
     )
 
 
@@ -53,6 +59,12 @@ class FakeClient:
         if isinstance(item, Exception):
             raise item
         return item
+
+
+def last_text(request: dict[str, Any]) -> str:
+    """The text of the last message in a request, whether it was sent as a string or as blocks."""
+    content = request["messages"][-1]["content"]
+    return content if isinstance(content, str) else " ".join(b["text"] for b in content if b["type"] == "text")
 
 
 def last_tool_results(request: dict[str, Any]) -> list[dict[str, Any]]:

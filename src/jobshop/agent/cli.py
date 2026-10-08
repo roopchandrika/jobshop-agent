@@ -130,6 +130,8 @@ class ChatSession:
         if final.changes_made:
             self.out("\nChanges in the draft (recorded by the system):")
             self.out("\n".join(f"  - {c}" for c in final.changes_made))
+        if final.goal and final.needs_approval:
+            self.out(f"\nSolved for (recorded by the system): {views.GOAL_LABELS[final.goal]}")
         if final.kpi_before and final.kpi_after:
             self.out(f"\nKPIs (from the solver, not from the model):\n" + "\n".join(kpi_lines(final.kpi_before, final.kpi_after)))
         for warning in final.warnings:

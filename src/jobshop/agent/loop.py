@@ -80,6 +80,7 @@ class FinalResponse(AnswerPayload):
     kpi_after: KPIView | None = None
     needs_approval: bool = False
     warnings: list[str] = Field(default_factory=list)
+    goal: str | None = None  # what the proposal was solved for, recorded by the draft
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,9 @@ class AgentConfig:
     max_cost_usd: float | None = None
     price_input_per_mtok: float | None = None
     price_output_per_mtok: float | None = None
+    # Mark the conversation so far as cacheable: each model call then re-reads the system prompt, the
+    # tool definitions and earlier steps at a fraction of the price instead of paying for them again.
+    prompt_caching: bool = True
 
     def __post_init__(self) -> None:
         if self.max_cost_usd is not None and None in (self.price_input_per_mtok, self.price_output_per_mtok):
@@ -118,6 +122,9 @@ class TurnResult:
     cost_usd: float | None
     llm_ms: int = 0   # time spent waiting for the model, summed over its calls
     tool_ms: int = 0  # time spent running tools (the solver dominates this)
+    # input_tokens above counts only uncached input, as the API reports it; cached input is counted here.
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 def run_turn(
@@ -135,18 +142,19 @@ def run_turn(
     tracer.event("turn_start", trace_version=TRACE_VERSION, model=config.model, user_text=user_text)
 
     tools = registry.api_specs() + [SUBMIT_SPEC]
-    steps = nudges = in_tokens = out_tokens = llm_ms = tool_ms = 0
+    steps = nudges = in_tokens = out_tokens = llm_ms = tool_ms = cache_read = cache_write = 0
     last_text = ""
     turn_began = time.perf_counter()
     prices = config.prices
 
     def cost() -> float | None:
-        return None if prices is None else prices.cost(in_tokens, out_tokens)
+        return None if prices is None else prices.cost(in_tokens, out_tokens, cache_read, cache_write)
 
     def finish(status: Status, final: FinalResponse | None = None, text: str | None = None) -> TurnResult:
-        result = TurnResult(status, final, text, steps, in_tokens, out_tokens, cost(), llm_ms, tool_ms)
+        result = TurnResult(status, final, text, steps, in_tokens, out_tokens, cost(), llm_ms, tool_ms, cache_read, cache_write)
         tracer.event("turn_end", status=status, steps=steps, input_tokens=in_tokens,
-                     output_tokens=out_tokens, cost_usd=result.cost_usd, llm_ms=llm_ms, tool_ms=tool_ms,
+                     output_tokens=out_tokens, cache_read_tokens=cache_read, cache_write_tokens=cache_write,
+                     cost_usd=result.cost_usd, llm_ms=llm_ms, tool_ms=tool_ms,
                      wall_ms=round((time.perf_counter() - turn_began) * 1000), text=text)
         return result
 
@@ -159,7 +167,7 @@ def run_turn(
         if steps >= config.max_steps:
             return stop_politely("step_limit", f"reached the limit of {config.max_steps} model calls")
         spent = cost()
-        if in_tokens + out_tokens >= config.max_total_tokens or (
+        if in_tokens + out_tokens + cache_read + cache_write >= config.max_total_tokens or (
             config.max_cost_usd is not None and spent is not None and spent >= config.max_cost_usd
         ):
             return stop_politely("budget_exceeded", "reached the token/cost budget for this request")
@@ -171,8 +179,8 @@ def run_turn(
                 model=config.model,
                 max_tokens=config.max_output_tokens,
                 system=system_prompt,
-                tools=tools,
-                messages=messages,
+                tools=_cacheable_tools(tools) if config.prompt_caching else tools,
+                messages=_cacheable_messages(messages) if config.prompt_caching else messages,
             )
         except anthropic.APIError as e:
             del messages[start_len:]  # nothing from this turn happened as far as the model knows
@@ -182,8 +190,12 @@ def run_turn(
         latency_ms = round((time.perf_counter() - began) * 1000)
         llm_ms += latency_ms
 
+        step_read = getattr(response.usage, "cache_read_input_tokens", None) or 0
+        step_write = getattr(response.usage, "cache_creation_input_tokens", None) or 0
         in_tokens += response.usage.input_tokens
         out_tokens += response.usage.output_tokens
+        cache_read += step_read
+        cache_write += step_write
         content = _blocks_to_params(response.content, tracer)
         messages.append({"role": "assistant", "content": content})
         tool_uses = [b for b in content if b["type"] == "tool_use"]
@@ -193,11 +205,9 @@ def run_turn(
             "llm_call", step=steps, model=config.model, response_id=getattr(response, "id", None),
             stop_reason=response.stop_reason,
             input_tokens=response.usage.input_tokens, output_tokens=response.usage.output_tokens,
-            # Recorded so a surprising bill can be explained; the cost below ignores them (no caching is used).
-            cache_read_tokens=getattr(response.usage, "cache_read_input_tokens", None) or 0,
-            cache_write_tokens=getattr(response.usage, "cache_creation_input_tokens", None) or 0,
+            cache_read_tokens=step_read, cache_write_tokens=step_write,
             latency_ms=latency_ms,
-            step_cost_usd=None if prices is None else prices.cost(response.usage.input_tokens, response.usage.output_tokens),
+            step_cost_usd=None if prices is None else prices.cost(response.usage.input_tokens, response.usage.output_tokens, step_read, step_write),
             total_cost_usd=cost(), text=texts, tool_calls=[b["name"] for b in tool_uses],
         )
 
@@ -234,12 +244,34 @@ def run_turn(
                 kpi_after=outcome.kpi_after,
                 needs_approval=outcome.needs_approval,
                 warnings=outcome.warnings,
+                goal=outcome.goal,
             )
             recap = final.clarifying_question or final.summary
             if payload.draft_id:
                 recap += f" (Proposal is in draft {payload.draft_id}.)"
             messages.append({"role": "assistant", "content": [{"type": "text", "text": recap}]})
             return finish("answered", final=final)
+
+
+_CACHE = {"type": "ephemeral"}
+
+
+def _cacheable_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A copy of the tool list with a cache breakpoint on the last tool (the tools come first in the prompt)."""
+    return [*tools[:-1], {**tools[-1], "cache_control": _CACHE}]
+
+
+def _cacheable_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A copy of the history with a cache breakpoint on its last block.
+
+    The next model call starts with exactly this prefix (system prompt, tools, every earlier step), so
+    it is read back from the cache instead of being processed and billed again. ``messages`` itself is
+    left alone: it is the stored conversation and must stay free of request-only markers.
+    """
+    last = messages[-1]
+    blocks = [{"type": "text", "text": last["content"]}] if isinstance(last["content"], str) else list(last["content"])
+    blocks[-1] = {**blocks[-1], "cache_control": _CACHE}
+    return [*messages[:-1], {**last, "content": blocks}]
 
 
 def _blocks_to_params(blocks: list[Any], tracer: Tracer) -> list[dict[str, Any]]:

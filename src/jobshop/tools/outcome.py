@@ -23,6 +23,7 @@ class DraftOutcome:
     kpi_after: KPIView | None = None
     needs_approval: bool = False
     warnings: list[str] = field(default_factory=list)
+    goal: str | None = None  # what the draft was solved for, from the draft, not from the model
 
 
 def draft_outcome(ctx: ToolContext, draft_id: str | None) -> DraftOutcome:
@@ -45,4 +46,5 @@ def draft_outcome(ctx: ToolContext, draft_id: str | None) -> DraftOutcome:
         kpi_before=views.kpi_view(committed.instance, compute_kpis(committed.instance, committed.schedule)),
         kpi_after=views.kpi_view(draft.instance, compute_kpis(draft.instance, draft.schedule)),
         needs_approval=bool(draft.changes),
+        goal=draft.goal,
     )

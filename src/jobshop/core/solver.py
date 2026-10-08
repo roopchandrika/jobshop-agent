@@ -18,6 +18,8 @@ How the model works (read this before the code):
        machine or different start) when ``stay_close_to`` is given;
     2. minimize makespan.
   Strict priorities (no weighting trade-off) let us report which part was proven optimal.
+  ``earliest_finish=True`` is the planner's alternative order: tardiness, then makespan, then
+  the number of operations moved (the same folding trick, applied to stage 2).
 
 Why the stability tie-break exists: tardiness and makespan do not care where unaffected
 work sits, so a re-solve reshuffles most of the plan for no reason (an empty change moved
@@ -80,6 +82,7 @@ def solve(
     config: SolverConfig = SolverConfig(),
     hint: Schedule | None = None,
     stay_close_to: Schedule | None = None,
+    earliest_finish: bool = False,
 ) -> Schedule:
     """Solve ``instance``.
 
@@ -87,6 +90,11 @@ def solve(
     constrains the answer. ``stay_close_to`` adds the stability tie-break: among schedules
     with the best tardiness, prefer the one that differs from this reference in the fewest
     operations. Frozen operations are never counted (they cannot move).
+
+    ``earliest_finish`` swaps the last two goals when there is a reference: tardiness, then the
+    earliest finish, then fewest moves. The default order can leave the shop finishing hours later
+    than necessary just to avoid moving a few operations; this is the planner's alternative.
+    ``stability_optimal`` is then left unset: "fewest moves" is no longer the second goal.
     """
     started = time.monotonic()
     frozen_by_op = _check_frozen(instance, frozen)
@@ -114,7 +122,8 @@ def solve(
     if hint is not None:
         _apply_hint(built, hint)
     moved1, comparable = (None, 0)
-    if stay_close_to is not None:
+    finish_first = earliest_finish and stay_close_to is not None  # moves are decided in stage 2 instead
+    if stay_close_to is not None and not finish_first:
         moved1, comparable = _add_stability(built, stay_close_to, frozen_by_op)
     scale = comparable + 1
     if moved1 is not None and comparable:
@@ -147,12 +156,20 @@ def solve(
         assert built2 is not None  # same instance as stage 1, which succeeded
         built2.model.add(built2.weighted_tardiness <= best_tardiness)
         moved2 = None
-        if best_moved is not None:
+        objective2 = built2.makespan
+        if finish_first:
+            assert stay_close_to is not None
+            moved2, counted = _add_stability(built2, stay_close_to, frozen_by_op)
+            if counted:  # one minute of makespan outweighs any number of moves
+                objective2 = (counted + 1) * built2.makespan + moved2
+            else:
+                moved2 = None
+        elif best_moved is not None:
             assert stay_close_to is not None
             moved2, _ = _add_stability(built2, stay_close_to, frozen_by_op)
             built2.model.add(moved2 <= best_moved)
         _copy_hint(best.built, best.solver, built2)
-        built2.model.minimize(built2.makespan)
+        built2.model.minimize(objective2)
         solver2 = _make_solver(config, remaining())
         status2 = solver2.solve(built2.model)
         if status2 in (cp_model.OPTIMAL, cp_model.FEASIBLE):

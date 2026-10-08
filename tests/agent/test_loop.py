@@ -12,7 +12,7 @@ from jobshop.tools import views
 from jobshop.tools.errors import ToolError
 from jobshop.tools.functions import CreateDraftInput
 from jobshop.tools.registry import Tool, ToolRegistry
-from tests.fake_llm import FakeClient, last_tool_results, message, submit, text, tool
+from tests.fake_llm import FakeClient, last_text, last_tool_results, message, submit, text, tool
 
 CONFIG = AgentConfig(model="fake-model")
 
@@ -169,7 +169,7 @@ def test_invalid_submit_payloads_are_rejected_and_retried(ctx, registry):
 
 def test_a_text_only_reply_is_nudged_to_submit(ctx, registry):
     result, client, messages = turn(ctx, registry, [message(text("Sure!")), submit(summary="Real answer.")])
-    assert "calling submit_response" in client.requests[1]["messages"][-1]["content"]
+    assert "calling submit_response" in last_text(client.requests[1])
     assert result.final.summary == "Real answer."
     assert_history_is_valid(messages)
 

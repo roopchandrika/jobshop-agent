@@ -8,11 +8,12 @@ and approves it.
 This is a portfolio project, built to learn AI engineering. The agent's tool-use loop is written by hand
 on the Anthropic SDK (no agent framework), and all data is synthetic.
 
-> **Status.** Built, with 679 automated tests (plus 2 opt-in tests that call the real API). A first
-> evaluation on a real model has been run: 29 scenarios, one run each, LLM judge off. Results are
-> [below](#results-from-a-real-model), including where they fall short. Not yet done: the LLM judge, a
-> comparison of two models, and connecting Claude Desktop/Code to the MCP server. See
-> [What is and isn't verified](#what-is-and-isnt-verified).
+> **Status.** Built, with 749 automated tests (plus 2 opt-in tests that call the real API) and CI on every
+> push. A first evaluation on a real model has been run: 29 scenarios, one run each, LLM judge off. Results
+> are [below](#results-from-a-real-model), including where they fall short. Since then the suite grew to 39
+> scenarios on two shops, and the agent gained prompt caching and a second solver goal; a judged, repeated
+> two-model comparison is being run and is not reported here yet. Not yet done: connecting Claude
+> Desktop/Code to the MCP server. See [What is and isn't verified](#what-is-and-isnt-verified).
 
 ![The web UI after an outage on M1: KPI tiles with deltas, a proposal with Approve and Reject, and the live and proposed Gantt charts](docs/images/web-ui.png)
 
@@ -60,8 +61,9 @@ avoid moving more work. Nothing is live until the planner approves.
 
 ## Results from a real model
 
-First evaluation: `claude-sonnet-5-5`, 29 scenarios, **one run each**, **LLM judge off**, solver limit 5 s,
-run on 2026-10-08. Prices were not configured, so cost is not computed.
+First evaluation (before the suite grew to 39 scenarios and before the changes listed under
+[what changed since](#what-changed-since-this-run)): `claude-sonnet-5-5`, 29 scenarios, **one run each**,
+**LLM judge off**, solver limit 5 s, run on 2026-10-08. Prices were not configured, so cost is not computed.
 
 | Check (what it reads: the system's state and tool log, not the model's wording) | Passed |
 |---|---|
@@ -90,8 +92,8 @@ explanations, four in clarifying questions:
 
 So the check caught three real breaches of "never calculate a number" in explanations (all harmless and
 correct). The four question failures are examples, a number from the model's own instructions, and a date
-it derived, which suggests the check should not scan clarifying questions. I have not changed it, so the
-results above are what was measured.
+it derived, so the check should not scan clarifying questions. Re-scoring these same 29 answers with the
+check narrowed to explanations gives 26/29; the table above is what was measured.
 
 **Prompt injection:** in all three injection scenarios the model read the planted note, did not act on it,
 and told the planner what it asked for (read by hand, in addition to the checks above).
@@ -103,13 +105,26 @@ and told the planner what it asked for (read by hand, in addition to the checks 
   judge would catch that kind of gap.
 - 29 scenarios on one small synthetic shop can catch regressions; they cannot rank close models.
 
+### What changed since this run
+
+- The numbers check now reads only the explanation (above). Tool results also carry `slack_min`,
+  `total_orders`, `on_time_orders` and `order_count`, so the model no longer needs to subtract or count, and
+  the prompt says to refuse a request to commit in the first sentence.
+- `reschedule` takes a goal: `fewest_moves` (default) or `earliest_finish`. On the shop above, the M2 outage
+  finishes 185 min later under the default and 60 min later, with 6 more operations moved, under
+  `earliest_finish`. The plan's goal is shown wherever a person approves.
+- Prompt caching is on, so the roughly 5,000-token prompt is no longer paid for at full price on every call.
+- The suite has 39 scenarios on two shops (a tight shop where outages make orders late).
+
+None of this has been measured on a real model over the full suite yet.
+
 ## How it works
 
 1. The planner types a request in the web UI, the chat CLI, or an MCP client such as Claude Desktop.
 2. The agent calls read tools (schedule, orders, machine status) and edit tools that change only a *draft*
    (add an outage, change a priority, add a rush order).
 3. It calls `reschedule` once. The solver re-plans everything that has not started, keeps started work in
-   place, and moves as few operations as it can.
+   place, and by default moves as few operations as it can (or finishes earliest, if the planner asks).
 4. It calls `compare_schedules` and answers. The before/after KPIs and the list of changes shown beside the
    answer are computed by the system, not typed by the model.
 5. The planner reviews the proposal and presses **Approve** (or types `y`, or runs `admin approve` for MCP).
@@ -195,10 +210,10 @@ uv run pytest                    # about two minutes; 2 tests are skipped (they 
 | Compare two models | `uv run python -m jobshop.evals compare --model A --model B --judge-model C` |
 | Read a trace | `uv run python -m jobshop.agent.trace_report logs/traces/<file>.jsonl` |
 
-The web UI starts from a committed fixture shop (`evals/shop.json`: 12 orders on 4 machines, one day), so
+The web UI starts from a committed fixture shop (`evals/shop.json`: 12 orders on 4 machines, one day; the evals also use a tighter 19-order shop), so
 it opens instantly. Without an API key it still shows the plan and chat is disabled. It listens on
 127.0.0.1 only and refuses other addresses, because it has no login. Real evals spend API credit
-(about 760k tokens for the run above).
+(about 760k tokens for the 29-scenario run above, before prompt caching).
 
 ## Design decisions
 
@@ -208,6 +223,8 @@ it opens instantly. Without an API key it still shows the plan and chat is disab
 - A strict order of goals: weighted tardiness first, then (against the live plan) fewest operations moved,
   then finish time. The consequence is stated, not hidden: one minute of tardiness outweighs any number of
   moves, and the second goal comes before the third, which is why the example above finishes later.
+  The planner can swap the last two (`goal: earliest_finish`), and the agent offers that when the default
+  pushes the finish noticeably later.
 - The result always carries the solver status and which goals were proven. At the default size
   (81 operations, 30 s) nothing was proven optimal in my runs, and the agent is told to say so.
 - An independent validator (it imports neither the solver nor its helpers) checks every schedule before a
@@ -239,8 +256,8 @@ it opens instantly. Without an API key it still shows the plan and chat is disab
   changed draft cannot be approved.
 
 **Evals and observability** ([docs/EVALS.md](docs/EVALS.md), [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md))
-- 29 YAML scenarios; five checks that read the store and tool log; an LLM judge that must be a different
-  model and treats the answer it grades as untrusted text. A scripted reference agent passes all 29 (this tests
+- 39 YAML scenarios on two fixture shops; five checks that read the store and tool log; an LLM judge that must be a different
+  model and treats the answer it grades as untrusted text. A scripted reference agent passes all 39 (this tests
   the harness, not a model) and deliberately bad agents each fail the check aimed at them.
 - Traces are versioned JSONL with per-step tokens, latency and cost (null, never 0, when no prices are given),
   split into model time and solver time. The model comparison reports confidence intervals and a paired test
@@ -251,7 +268,7 @@ it opens instantly. Without an API key it still shows the plan and chat is disab
 | Verified | Not verified |
 |---|---|
 | The solver against an independent validator and recomputation | The LLM judge on a real model (never run) |
-| Tools, loop, approval, store and the MCP server over real stdio, by 679 automated tests | A comparison of two real models (never run) |
+| Tools, loop, approval, store and the MCP server over real stdio, by 749 automated tests, run by CI on every push | A comparison of two real models (never run) |
 | The web API (CSRF, Origin, Host, CSP, approval fingerprint) over a real socket | The live prompt-injection test (`JOBSHOP_RUN_LIVE=1`, opt-in; the eval scenarios gave a first read instead) |
 | The UI in a real browser: chat, proposal, Approve, charts, dark mode, phone width, and HTML in answers staying inert text | Claude Desktop/Code connecting to the MCP server |
 | A real model on 29 scenarios, deterministic checks only (results above); one real chat in the web UI, checked by hand | The Approve flow with a real model; screen readers; browsers other than one |
@@ -260,8 +277,8 @@ it opens instantly. Without an API key it still shows the plan and chat is disab
 ## Known limits
 
 - At the default size nothing is proven optimal in 30 s, and strict priority means a tiny tardiness gain can
-  justify moving many operations or a much later finish. A tardiness-versus-disruption tolerance is an open
-  decision, not implemented.
+  justify moving many operations or a much later finish. `earliest_finish` is the escape hatch; a graded
+  tardiness-versus-disruption trade-off is not implemented.
 - One planner, one shop. State is in memory (web app) or a JSON file (MCP); there are no accounts or history,
   and restarting the web app resets drafts.
 - The real model sometimes works out a number or date itself despite the rule against it (4 of 29 runs above, all correct).
@@ -277,7 +294,7 @@ src/jobshop/mcp_server/  stdio MCP server and the human `admin` command
 src/jobshop/api/         FastAPI app and the web UI (static/)
 src/jobshop/evals/       scenarios, checks, judge, runner, comparison, reference agent
 scripts/                 demo_server.py: the web UI with a scripted stand-in for the model
-evals/                   fixture shop, 29 scenarios (YAML), results (gitignored)
+evals/                   two fixture shops, 39 scenarios (YAML), results (gitignored)
 tests/                   mirrors src/; fake_llm.py is a scripted stand-in returning real SDK messages
 docs/                    ROADMAP.md (what is done, what is next), MCP.md, SAFETY.md, EVALS.md, OBSERVABILITY.md
 ```

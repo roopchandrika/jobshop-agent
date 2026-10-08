@@ -25,6 +25,8 @@ class Step:
     tools: list[str]
     tool_ms: int = 0
     tool_errors: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 @dataclass
@@ -41,6 +43,14 @@ class TraceSummary:
     @property
     def output_tokens(self) -> int:
         return sum(s.output_tokens for s in self.steps)
+
+    @property
+    def cache_read_tokens(self) -> int:
+        return sum(s.cache_read_tokens for s in self.steps)
+
+    @property
+    def cache_write_tokens(self) -> int:
+        return sum(s.cache_write_tokens for s in self.steps)
 
     @property
     def llm_ms(self) -> int:
@@ -81,7 +91,9 @@ def summarize(records: list[dict[str, Any]]) -> TraceSummary:
             summary.api_errors += 1
         elif event == "llm_call":
             step = Step(summary.turns, r["step"], r.get("model"), r["input_tokens"], r["output_tokens"],
-                        r["latency_ms"], r.get("step_cost_usd"), list(r["tool_calls"]))
+                        r["latency_ms"], r.get("step_cost_usd"), list(r["tool_calls"]),
+                        cache_read_tokens=r.get("cache_read_tokens") or 0,
+                        cache_write_tokens=r.get("cache_write_tokens") or 0)
             current[(summary.turns, r["step"])] = step
             summary.steps.append(step)
         elif event == "tool_call":
@@ -96,16 +108,18 @@ def render(summary: TraceSummary) -> str:
     def money(value: float | None) -> str:
         return "n/a" if value is None else f"${value:.4f}"
 
-    rows = [("turn", "step", "in tok", "out tok", "llm ms", "cost", "tool ms", "tools")]
+    # "cached" is input read back from the prompt cache; "in tok" counts only input that was not cached.
+    rows = [("turn", "step", "in tok", "cached", "out tok", "llm ms", "cost", "tool ms", "tools")]
     for s in summary.steps:
         tools = ", ".join(s.tools) + (f"  ({s.tool_errors} failed)" if s.tool_errors else "")
-        rows.append((str(s.turn), str(s.step), str(s.input_tokens), str(s.output_tokens), str(s.llm_ms),
-                     money(s.cost_usd), str(s.tool_ms) if s.tools else "-", tools))
+        rows.append((str(s.turn), str(s.step), str(s.input_tokens), str(s.cache_read_tokens), str(s.output_tokens),
+                     str(s.llm_ms), money(s.cost_usd), str(s.tool_ms) if s.tools else "-", tools))
     widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]) - 1)]
     lines = ["  ".join(c.rjust(w) for c, w in zip(r[:-1], widths)) + "  " + r[-1] for r in rows]
     lines.insert(1, "-" * len(lines[0]))
     lines.append(
-        f"\n{summary.turns} turn(s), {len(summary.steps)} model call(s): {summary.input_tokens} in + {summary.output_tokens} out tokens, "
+        f"\n{summary.turns} turn(s), {len(summary.steps)} model call(s): {summary.input_tokens} in + {summary.output_tokens} out tokens "
+        f"(+ {summary.cache_read_tokens} read from cache, {summary.cache_write_tokens} written to it), "
         f"cost {money(summary.cost_usd)}, model time {summary.llm_ms / 1000:.1f} s, tool time {summary.tool_ms / 1000:.1f} s"
         + (f", {summary.api_errors} API error(s)" if summary.api_errors else "")
         + f"\nturn status: {', '.join(summary.statuses) or 'none recorded'}"

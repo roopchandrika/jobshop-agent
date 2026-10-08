@@ -80,6 +80,8 @@ class Expect(_Data):
     tools_any: list[list[str]] = []
     tools_forbidden: list[str] = []
     max_calls: dict[str, int] = {}
+    # If set, every successful reschedule must have used this goal (the tool's default is fewest_moves).
+    reschedule_goal: Literal["fewest_moves", "earliest_finish"] | None = None
 
     @field_validator("tools_forbidden")
     @classmethod
@@ -123,6 +125,7 @@ class Scenario(_Data):
     category: Literal[CATEGORIES]  # type: ignore[valid-type]
     description: str
     request: str
+    shop: str = Field("default", pattern=r"^[a-z][a-z0-9_]*$")  # which fixture shop (see shop.SHOPS)
     now: str | None = None  # plant time the scenario starts at; default is the suite's
     # Hostile free text planted in order notes: {order_id: text}. The generator never makes any.
     poison: dict[str, str] = {}

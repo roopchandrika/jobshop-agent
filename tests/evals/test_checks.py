@@ -13,11 +13,11 @@ D = "D1"
 M2_OUTAGE = dict(draft_id=D, machine_id="M2", start="2026-01-05 11:00", end="2026-01-05 14:00")
 
 
-def proposal(*edits, summary="The outage is covered in the draft; the KPIs below show the effect.", reschedules=1, extra_tools=()):
+def proposal(*edits, summary="The outage is covered in the draft; the KPIs below show the effect.", reschedules=1, extra_tools=(), solve_args=None):
     """A scripted agent that does the whole job for a draft with the given edit tool calls."""
     script = [*extra_tools, message(tool("create_draft", "c1")),
               message(*[tool(name, f"e{k}", **args) for k, (name, args) in enumerate(edits)])]
-    script += [message(tool("reschedule", f"r{k}", draft_id=D)) for k in range(reschedules)]
+    script += [message(tool("reschedule", f"r{k}", draft_id=D, **(solve_args or {}))) for k in range(reschedules)]
     script += [message(tool("compare_schedules", "cmp", after=D)), submit(summary=summary, draft_id=D)]
     return script
 
@@ -145,6 +145,54 @@ def test_actual_changes_compares_a_draft_with_the_live_plan(ctx):
     assert actual_changes(ctx.store.committed.instance, draft.instance).empty
 
 
+# -- the goal passed to reschedule ------------------------------------------------------------------
+
+
+EF02 = ("simulate_downtime", dict(draft_id=D, machine_id="M2", start="2026-01-05 11:00", end="2026-01-05 14:00"))
+
+
+def test_asking_for_the_earliest_finish_and_passing_it_on_passes(play):
+    result, _ = play("ef-02", proposal(EF02, solve_args={"goal": "earliest_finish"}))
+    assert result.passed, result.checks
+
+
+def test_ignoring_a_request_for_the_earliest_finish_fails_the_tools_check_only(play):
+    result, _ = play("ef-02", proposal(EF02))   # the tool's default is fewest_moves
+    assert failed(result) == {"tools"}
+    assert result.checks["tools"]["details"] == ["rescheduled with goal 'fewest_moves', expected 'earliest_finish'"]
+
+
+def test_using_the_wrong_goal_explicitly_fails_too(play):
+    result, _ = play("ef-02", proposal(EF02, solve_args={"goal": "fewest_moves"}))
+    assert failed(result) == {"tools"}
+
+
+def test_swapping_in_the_earliest_finish_when_the_planner_wanted_little_disturbance_fails(play):
+    result, _ = play("ef-03", proposal(EF02, solve_args={"goal": "earliest_finish"}))
+    assert failed(result) == {"tools"}
+    assert "expected 'fewest_moves'" in result.checks["tools"]["details"][0]
+
+
+def test_a_failed_reschedule_call_does_not_count_towards_the_goal_check(play):
+    # A mistaken first attempt (an unknown draft, so the tool refuses it) is retried correctly.
+    mistake = message(tool("reschedule", "bad", draft_id="D9"))
+    script = proposal(EF02, solve_args={"goal": "earliest_finish"})
+    script.insert(2, mistake)   # after create_draft and the edit
+    result, run = play("ef-02", script)
+    assert any(c.name == "reschedule" and c.is_error for c in run.calls)
+    # The call limit still counts the extra attempt, but the refused call's missing goal is not held against the agent.
+    assert result.checks["tools"]["details"] == ["reschedule called 2 times (limit 1)"]
+
+
+def test_the_default_goal_satisfies_a_scenario_that_wants_fewest_moves(play):
+    assert play("ef-03", proposal(EF02))[0].passed
+
+
+def test_a_scenario_without_a_goal_expectation_accepts_either(play):
+    for args in (None, {"goal": "earliest_finish"}):
+        assert play("sd-01", sd01(solve_args=args))[0].passed
+
+
 # -- numbers ----------------------------------------------------------------------------------------
 
 
@@ -170,6 +218,16 @@ def test_quoting_numbers_that_the_tools_returned_passes(play):
     script = sd01()[:-1] + [quote]
     result, _ = play("sd-01", script)
     assert result.passed, result.checks["numbers"]
+
+
+def test_example_times_in_a_clarifying_question_are_not_claims_about_the_shop(play):
+    result, _ = play("am-01", [submit(summary="I need one detail first.", clarifying_question="Do you mean 14:00 to 17:00, or 5 hours?")])
+    assert result.checks["numbers"]["passed"] is True and result.passed
+
+
+def test_the_explanation_is_still_checked_when_a_question_is_asked_too(play):
+    result, _ = play("am-01", [submit(summary="That would delay things by 45 minutes.", clarifying_question="Which machine?")])
+    assert failed(result) == {"numbers"}
 
 
 def test_numbers_from_the_planners_own_request_may_be_repeated(play):

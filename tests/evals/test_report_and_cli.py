@@ -85,6 +85,23 @@ def test_a_crash_in_one_scenario_costs_only_that_scenario(shop, scenarios):
     assert results[0].error == "RuntimeError: harness bug" and results[1].passed
 
 
+def test_each_scenario_runs_on_the_shop_it_names(shops, scenarios):
+    from jobshop.agent.loop import AgentConfig
+
+    # ts-05's reference answer quotes slack figures that only exist in the tight shop's plan.
+    [tight] = run_suite([scenarios["ts-05"]], OracleClient, AgentConfig(model="m"), shops, FAST)
+    assert tight.passed, tight.checks
+    [wrong] = run_suite([scenarios["ts-05"]], OracleClient, AgentConfig(model="m"), {"default": shops["default"], "tight": shops["default"]}, FAST)
+    assert not wrong.passed and wrong.checks["numbers"]["passed"] is False
+
+
+def test_a_scenario_whose_shop_was_not_loaded_is_a_setup_error_not_a_crash(shop, scenarios):
+    from jobshop.agent.loop import AgentConfig
+
+    with pytest.raises(ValueError, match=r"not loaded: \['tight'\]"):
+        run_suite([scenarios["ts-01"]], OracleClient, AgentConfig(model="m"), shop, FAST)   # a bare shop means "default"
+
+
 def test_fresh_contexts_are_independent_and_plant_hostile_notes(shop):
     a = fresh_context(shop, FAST, poison={"O-108": "hostile"})
     b = fresh_context(shop, FAST)
@@ -111,9 +128,9 @@ def test_the_oracle_run_writes_a_report_and_exits_zero(tmp_path, monkeypatch, ca
     monkeypatch.setattr(cli, "load_dotenv", lambda: None)
     code = run_cli("run", "--oracle", "--only", "read_only", "--out", str(tmp_path), "--solve-seconds", "1")
     out = capsys.readouterr().out
-    assert code == 0 and "TOTAL" in out and "3/3" in out
+    assert code == 0 and "TOTAL" in out and "5/5" in out   # read_only: q-01..q-04 on the default shop, ts-05 on the tight one
     [run_dir] = list(tmp_path.iterdir())
-    assert (run_dir / "report.md").exists() and len(list((run_dir / "traces").glob("*.jsonl"))) == 3
+    assert (run_dir / "report.md").exists() and len(list((run_dir / "traces").glob("*.jsonl"))) == 5
 
 
 def test_a_run_with_a_failure_exits_one(tmp_path, monkeypatch, capsys):
@@ -155,5 +172,24 @@ def test_a_missing_api_key_is_reported_before_any_call(monkeypatch, capsys):
 def test_a_missing_shop_fixture_says_how_to_create_it(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli, "load_dotenv", lambda: None)
     (tmp_path / "scenarios").mkdir()
-    assert cli.main(["--evals-dir", str(tmp_path), "run", "--oracle"]) == 2
-    assert "build-shop" in capsys.readouterr().err
+    (tmp_path / "scenarios" / "one.yaml").write_text((EVALS / "scenarios" / "01_simple_downtime.yaml").read_text())
+    assert cli.main(["--evals-dir", str(tmp_path), "run", "--oracle", "--out", str(tmp_path / "o")]) == 2
+    err = capsys.readouterr().err
+    assert "build-shop" in err and "shop.json" in err
+
+
+def test_a_scenario_on_the_tight_shop_needs_that_fixture_too(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "load_dotenv", lambda: None)
+    (tmp_path / "scenarios").mkdir()
+    (tmp_path / "scenarios" / "t.yaml").write_text((EVALS / "scenarios" / "06_goals_and_tight_shop.yaml").read_text())
+    (tmp_path / "shop.json").write_text((EVALS / "shop.json").read_text())   # the default shop alone is not enough
+    assert cli.main(["--evals-dir", str(tmp_path), "run", "--oracle", "--only", "ts-01", "--out", str(tmp_path / "o")]) == 2
+    assert "build-shop --shop tight" in capsys.readouterr().err
+
+
+def test_only_the_shops_a_selection_needs_are_loaded(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "load_dotenv", lambda: None)
+    (tmp_path / "scenarios").mkdir()
+    (tmp_path / "scenarios" / "t.yaml").write_text((EVALS / "scenarios" / "06_goals_and_tight_shop.yaml").read_text())
+    (tmp_path / "shop_tight.json").write_text((EVALS / "shop_tight.json").read_text())   # no default shop on disk
+    assert cli.main(["--evals-dir", str(tmp_path), "run", "--oracle", "--only", "ts-01", "--out", str(tmp_path / "o")]) == 0

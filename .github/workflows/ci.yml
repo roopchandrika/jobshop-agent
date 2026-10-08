@@ -1,0 +1,33 @@
+name: tests
+
+# Runs the whole test suite and the scripted reference agent on every push and pull request.
+# No secrets and no API calls: the model-facing code is tested with scripted stand-ins, and the
+# reference agent exercises the eval harness. A run against a real model is done by hand (see README).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install the locked dependencies
+        run: uv sync --locked
+
+      - name: Tests
+        run: uv run pytest -q
+
+      - name: Reference agent through the eval harness (all scenarios, both shops)
+        run: uv run python -m jobshop.evals run --oracle --out "$RUNNER_TEMP/eval-results"

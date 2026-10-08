@@ -94,6 +94,7 @@ def _review(info: dict, out: Callable[[str], None]) -> None:
     diff = cmp_["diff"]
     out(f"\nApproval request {req['id']} for draft {req['draft_id']}")
     out("Changes in the draft:\n" + "\n".join(f"  - {c}" for c in info["changes"]))
+    out(f"\nSolved for: {views.GOAL_LABELS[info['goal']]}")
     out("\nKPIs (computed from the stored schedules, not from the model):")
     out("\n".join(human.kpi_lines(KPIView.model_validate(diff["kpi_before"]), KPIView.model_validate(diff["kpi_after"]))))
     out(f"\nOperations moved: {diff['moved_operation_count']} ({diff['machine_change_count']} changed machine)")

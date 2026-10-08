@@ -1,0 +1,812 @@
+{
+ "generated_by": "python -m jobshop.evals build-shop",
+ "settings": {
+  "seed": 2,
+  "n_machines": 4,
+  "n_orders": 19,
+  "ops_min": 2,
+  "ops_max": 3,
+  "n_days": 1,
+  "shift_minutes": 960,
+  "n_families": 4,
+  "t0": "2026-01-05 06:00:00"
+ },
+ "instance": {
+  "t0": "2026-01-05T06:00:00",
+  "now": 0,
+  "machines": [
+   {
+    "id": "M1",
+    "type": "turning cell",
+    "capabilities": [
+     "turning",
+     "milling",
+     "drilling"
+    ],
+    "availability": [
+     {
+      "start": 0,
+      "end": 960
+     }
+    ],
+    "downtime": []
+   },
+   {
+    "id": "M2",
+    "type": "milling cell",
+    "capabilities": [
+     "milling",
+     "drilling",
+     "grinding"
+    ],
+    "availability": [
+     {
+      "start": 0,
+      "end": 960
+     }
+    ],
+    "downtime": []
+   },
+   {
+    "id": "M3",
+    "type": "drilling cell",
+    "capabilities": [
+     "drilling",
+     "grinding",
+     "turning"
+    ],
+    "availability": [
+     {
+      "start": 0,
+      "end": 960
+     }
+    ],
+    "downtime": []
+   },
+   {
+    "id": "M4",
+    "type": "grinding cell",
+    "capabilities": [
+     "grinding",
+     "turning",
+     "milling"
+    ],
+    "availability": [
+     {
+      "start": 0,
+      "end": 960
+     }
+    ],
+    "downtime": []
+   }
+  ],
+  "orders": [
+   {
+    "id": "O-101",
+    "family": "bracket",
+    "due": 425,
+    "priority": 4,
+    "operations": [
+     {
+      "id": "O-101-op1",
+      "duration": 25,
+      "required_capability": "turning"
+     },
+     {
+      "id": "O-101-op2",
+      "duration": 100,
+      "required_capability": "drilling"
+     }
+    ],
+    "notes": ""
+   },
+   {
+    "id": "O-102",
+    "family": "housing",
+    "due": 155,
+    "priority": 3,
+    "operations": [
+     {
+      "id": "O-102-op1",
+      "duration": 35,
+      "required_capability": "drilling"
+     },
+     {
+      "id": "O-102-op2",
+      "duration": 30,
+      "required_capability": "grinding"
+     }
+    ],
+    "notes": ""
+   },
+   {
+    "id": "O-103",
+    "family": "housing",
+    "due": 365,
+    "priority": 5,
+    "operations": [
+     {
+      "id": "O-103-op1",
+      "duration": 50,
+      "required_capability": "drilling"
+     },
+     {
+      "id": "O-103-op2",
+      "duration": 35,
+      "required_capability": "grinding"
+     }
+    ],
+    "notes": ""
+   },
+   {
+    "id": "O-104",
+    "family": "shaft",
+    "due": 510,
+    "priority": 2,
+    "operations": [
+     {
+      "id": "O-104-op1",
+      "duration": 45,
+      "required_capability": "milling"
+     },
+     {
+      "id": "O-104-op2",
+      "duration": 55,
+      "required_capability": "grinding"
+     }
+    ],
+    "notes": ""
+   },
+   {
+    "id": "O-105",
+    "family": "housing",
+    "due": 515,
+    "priority": 4,
+    "operations": [
+     {
+      "id": "O-105-op1",
+      "duration": 40,
+      "required_capability": "drilling"
+     },
+     {
+      "id": "O-105-op2",
+      "duration": 40,
+      "required_capability": "grinding"
+     }
+    ],
+    "notes": ""
+   },
+   {
+    "id": "O-106",
+    "family": "gear",
+    "due": 795,
+    "priority": 3,
+    "operations": [
+     {
+      "id": "O-106-op1",
+      "duration": 70,
+      "required_capability": "grinding"
+     },
+     {
+      "id": "O-106-op2",
+      "duration": 90,
+      "required_capability": "milling"
+     },
+     {
+      "id": "O-106-op3",
+      "duration": 85,
+      "required_capability": "turning"
+     }
+    ],
+    "notes": ""
+   },
+   {
+    "id": "O-107",
+    "family": "shaft",
+    "due": 485,
+    "priority": 2,
+    "operations": [
+     {
+      "id": "O-107-op1",
+      "duration": 55,
+      "required_capability": "milling"
+     },
+     {
+      "id": "O-107-op2",
+      "duration": 55,
+      "required_capability": "grinding"
+     }
+    ],
+    "notes": ""
+   },
+   {
+    "id": "O-108",
+    "family": "shaft",
+    "due": 435,
+    "priority": 3,
+    "operations": [
+     {
+      "id": "O-108-op1",
+      "duration": 45,
+      "required_capability": "milling"
+     },
+     {
+      "id": "O-108-op2",
+      "duration": 55,
+      "required_capability": "grinding"
+     }
+    ],
+    "notes": ""
+   },
+   {
+    "id": "O-109",
+    "family": "gear",
+    "due": 695,
+    "priority": 4,
+    "operations": [
+     {
+      "id": "O-109-op1",
+      "duration": 55,
+      "required_capability": "grinding"
+     },
+     {
+      "id": "O-109-op2",
+      "duration": 80,
+      "required_capability": "milling"
+     },
+     {
+      "id": "O-109-op3",
+      "duration": 85,
+      "required_capability": "turning"
+     }
+    ],
+    "notes": ""
+   },
+   {
+    "id": "O-110",
+    "family": "shaft",
+    "due": 500,
+    "priority": 1,
+    "operations": [
+     {
+      "id": "O-110-op1",
+      "duration": 55,
+      "required_capability": "milling"
+     },
+     {
+      "id": "O-110-op2",
+      "duration": 60,
+      "required_capability": "grinding"
+     }
+    ],
+    "notes": ""
+   },
+   {
+    "id": "O-111",
+    "family": "bracket",
+    "due": 225,
+    "priority": 4,
+    "operations": [
+     {
+      "id": "O-111-op1",
+      "duration": 25,
+      "required_capability": "turning"
+     },
+     {
+      "id": "O-111-op2",
+      "duration": 75,
+      "required_capability": "drilling"
+     }
+    ],
+    "notes": "Repeat order, no changes from the last batch."
+   },
+   {
+    "id": "O-112",
+    "family": "housing",
+    "due": 525,
+    "priority": 3,
+    "operations": [
+     {
+      "id": "O-112-op1",
+      "duration": 45,
+      "required_capability": "drilling"
+     },
+     {
+      "id": "O-112-op2",
+      "duration": 40,
+      "required_capability": "grinding"
+     }
+    ],
+    "notes": "Repeat order, no changes from the last batch."
+   },
+   {
+    "id": "O-113",
+    "family": "shaft",
+    "due": 155,
+    "priority": 1,
+    "operations": [
+     {
+      "id": "O-113-op1",
+      "duration": 45,
+      "required_capability": "milling"
+     },
+     {
+      "id": "O-113-op2",
+      "duration": 55,
+      "required_capability": "grinding"
+     }
+    ],
+    "notes": ""
+   },
+   {
+    "id": "O-114",
+    "family": "bracket",
+    "due": 520,
+    "priority": 2,
+    "operations": [
+     {
+      "id": "O-114-op1",
+      "duration": 25,
+      "required_capability": "turning"
+     },
+     {
+      "id": "O-114-op2",
+      "duration": 70,
+      "required_capability": "drilling"
+     }
+    ],
+    "notes": ""
+   },
+   {
+    "id": "O-115",
+    "family": "gear",
+    "due": 440,
+    "priority": 2,
+    "operations": [
+     {
+      "id": "O-115-op1",
+      "duration": 60,
+      "required_capability": "grinding"
+     },
+     {
+      "id": "O-115-op2",
+      "duration": 100,
+      "required_capability": "milling"
+     },
+     {
+      "id": "O-115-op3",
+      "duration": 75,
+      "required_capability": "turning"
+     }
+    ],
+    "notes": ""
+   },
+   {
+    "id": "O-116",
+    "family": "bracket",
+    "due": 410,
+    "priority": 4,
+    "operations": [
+     {
+      "id": "O-116-op1",
+      "duration": 25,
+      "required_capability": "turning"
+     },
+     {
+      "id": "O-116-op2",
+      "duration": 85,
+      "required_capability": "drilling"
+     }
+    ],
+    "notes": ""
+   },
+   {
+    "id": "O-117",
+    "family": "shaft",
+    "due": 410,
+    "priority": 5,
+    "operations": [
+     {
+      "id": "O-117-op1",
+      "duration": 55,
+      "required_capability": "milling"
+     },
+     {
+      "id": "O-117-op2",
+      "duration": 55,
+      "required_capability": "grinding"
+     }
+    ],
+    "notes": "Repeat order, no changes from the last batch."
+   },
+   {
+    "id": "O-118",
+    "family": "bracket",
+    "due": 455,
+    "priority": 3,
+    "operations": [
+     {
+      "id": "O-118-op1",
+      "duration": 20,
+      "required_capability": "turning"
+     },
+     {
+      "id": "O-118-op2",
+      "duration": 95,
+      "required_capability": "drilling"
+     }
+    ],
+    "notes": ""
+   },
+   {
+    "id": "O-119",
+    "family": "shaft",
+    "due": 430,
+    "priority": 5,
+    "operations": [
+     {
+      "id": "O-119-op1",
+      "duration": 45,
+      "required_capability": "milling"
+     },
+     {
+      "id": "O-119-op2",
+      "duration": 60,
+      "required_capability": "grinding"
+     }
+    ],
+    "notes": ""
+   }
+  ],
+  "routing_templates": {
+   "bracket": [
+    {
+     "capability": "turning",
+     "duration": 25
+    },
+    {
+     "capability": "drilling",
+     "duration": 85
+    }
+   ],
+   "housing": [
+    {
+     "capability": "drilling",
+     "duration": 40
+    },
+    {
+     "capability": "grinding",
+     "duration": 35
+    }
+   ],
+   "shaft": [
+    {
+     "capability": "milling",
+     "duration": 50
+    },
+    {
+     "capability": "grinding",
+     "duration": 50
+    }
+   ],
+   "gear": [
+    {
+     "capability": "grinding",
+     "duration": 60
+    },
+    {
+     "capability": "milling",
+     "duration": 90
+    },
+    {
+     "capability": "turning",
+     "duration": 85
+    }
+   ]
+  }
+ },
+ "schedule": {
+  "assignments": [
+   {
+    "op_id": "O-101-op1",
+    "order_id": "O-101",
+    "machine_id": "M3",
+    "start": 250,
+    "end": 275
+   },
+   {
+    "op_id": "O-101-op2",
+    "order_id": "O-101",
+    "machine_id": "M3",
+    "start": 275,
+    "end": 375
+   },
+   {
+    "op_id": "O-102-op1",
+    "order_id": "O-102",
+    "machine_id": "M2",
+    "start": 45,
+    "end": 80
+   },
+   {
+    "op_id": "O-102-op2",
+    "order_id": "O-102",
+    "machine_id": "M4",
+    "start": 115,
+    "end": 145
+   },
+   {
+    "op_id": "O-103-op1",
+    "order_id": "O-103",
+    "machine_id": "M3",
+    "start": 25,
+    "end": 75
+   },
+   {
+    "op_id": "O-103-op2",
+    "order_id": "O-103",
+    "machine_id": "M2",
+    "start": 135,
+    "end": 170
+   },
+   {
+    "op_id": "O-104-op1",
+    "order_id": "O-104",
+    "machine_id": "M4",
+    "start": 365,
+    "end": 410
+   },
+   {
+    "op_id": "O-104-op2",
+    "order_id": "O-104",
+    "machine_id": "M4",
+    "start": 410,
+    "end": 465
+   },
+   {
+    "op_id": "O-105-op1",
+    "order_id": "O-105",
+    "machine_id": "M1",
+    "start": 55,
+    "end": 95
+   },
+   {
+    "op_id": "O-105-op2",
+    "order_id": "O-105",
+    "machine_id": "M3",
+    "start": 445,
+    "end": 485
+   },
+   {
+    "op_id": "O-106-op1",
+    "order_id": "O-106",
+    "machine_id": "M3",
+    "start": 375,
+    "end": 445
+   },
+   {
+    "op_id": "O-106-op2",
+    "order_id": "O-106",
+    "machine_id": "M2",
+    "start": 450,
+    "end": 540
+   },
+   {
+    "op_id": "O-106-op3",
+    "order_id": "O-106",
+    "machine_id": "M4",
+    "start": 545,
+    "end": 630
+   },
+   {
+    "op_id": "O-107-op1",
+    "order_id": "O-107",
+    "machine_id": "M1",
+    "start": 0,
+    "end": 55
+   },
+   {
+    "op_id": "O-107-op2",
+    "order_id": "O-107",
+    "machine_id": "M3",
+    "start": 75,
+    "end": 130
+   },
+   {
+    "op_id": "O-108-op1",
+    "order_id": "O-108",
+    "machine_id": "M4",
+    "start": 70,
+    "end": 115
+   },
+   {
+    "op_id": "O-108-op2",
+    "order_id": "O-108",
+    "machine_id": "M4",
+    "start": 145,
+    "end": 200
+   },
+   {
+    "op_id": "O-109-op1",
+    "order_id": "O-109",
+    "machine_id": "M3",
+    "start": 195,
+    "end": 250
+   },
+   {
+    "op_id": "O-109-op2",
+    "order_id": "O-109",
+    "machine_id": "M4",
+    "start": 465,
+    "end": 545
+   },
+   {
+    "op_id": "O-109-op3",
+    "order_id": "O-109",
+    "machine_id": "M1",
+    "start": 545,
+    "end": 630
+   },
+   {
+    "op_id": "O-110-op1",
+    "order_id": "O-110",
+    "machine_id": "M4",
+    "start": 310,
+    "end": 365
+   },
+   {
+    "op_id": "O-110-op2",
+    "order_id": "O-110",
+    "machine_id": "M2",
+    "start": 390,
+    "end": 450
+   },
+   {
+    "op_id": "O-111-op1",
+    "order_id": "O-111",
+    "machine_id": "M4",
+    "start": 45,
+    "end": 70
+   },
+   {
+    "op_id": "O-111-op2",
+    "order_id": "O-111",
+    "machine_id": "M1",
+    "start": 95,
+    "end": 170
+   },
+   {
+    "op_id": "O-112-op1",
+    "order_id": "O-112",
+    "machine_id": "M3",
+    "start": 150,
+    "end": 195
+   },
+   {
+    "op_id": "O-112-op2",
+    "order_id": "O-112",
+    "machine_id": "M3",
+    "start": 485,
+    "end": 525
+   },
+   {
+    "op_id": "O-113-op1",
+    "order_id": "O-113",
+    "machine_id": "M2",
+    "start": 0,
+    "end": 45
+   },
+   {
+    "op_id": "O-113-op2",
+    "order_id": "O-113",
+    "machine_id": "M2",
+    "start": 80,
+    "end": 135
+   },
+   {
+    "op_id": "O-114-op1",
+    "order_id": "O-114",
+    "machine_id": "M1",
+    "start": 425,
+    "end": 450
+   },
+   {
+    "op_id": "O-114-op2",
+    "order_id": "O-114",
+    "machine_id": "M1",
+    "start": 450,
+    "end": 520
+   },
+   {
+    "op_id": "O-115-op1",
+    "order_id": "O-115",
+    "machine_id": "M2",
+    "start": 170,
+    "end": 230
+   },
+   {
+    "op_id": "O-115-op2",
+    "order_id": "O-115",
+    "machine_id": "M2",
+    "start": 230,
+    "end": 330
+   },
+   {
+    "op_id": "O-115-op3",
+    "order_id": "O-115",
+    "machine_id": "M1",
+    "start": 350,
+    "end": 425
+   },
+   {
+    "op_id": "O-116-op1",
+    "order_id": "O-116",
+    "machine_id": "M3",
+    "start": 0,
+    "end": 25
+   },
+   {
+    "op_id": "O-116-op2",
+    "order_id": "O-116",
+    "machine_id": "M1",
+    "start": 265,
+    "end": 350
+   },
+   {
+    "op_id": "O-117-op1",
+    "order_id": "O-117",
+    "machine_id": "M4",
+    "start": 200,
+    "end": 255
+   },
+   {
+    "op_id": "O-117-op2",
+    "order_id": "O-117",
+    "machine_id": "M4",
+    "start": 255,
+    "end": 310
+   },
+   {
+    "op_id": "O-118-op1",
+    "order_id": "O-118",
+    "machine_id": "M3",
+    "start": 130,
+    "end": 150
+   },
+   {
+    "op_id": "O-118-op2",
+    "order_id": "O-118",
+    "machine_id": "M1",
+    "start": 170,
+    "end": 265
+   },
+   {
+    "op_id": "O-119-op1",
+    "order_id": "O-119",
+    "machine_id": "M4",
+    "start": 0,
+    "end": 45
+   },
+   {
+    "op_id": "O-119-op2",
+    "order_id": "O-119",
+    "machine_id": "M2",
+    "start": 330,
+    "end": 390
+   }
+  ],
+  "solve_info": {
+   "status": "OPTIMAL",
+   "tardiness_optimal": true,
+   "makespan_optimal": true,
+   "stability_optimal": null,
+   "tardiness_bound": 0.0,
+   "reported_weighted_tardiness": 0,
+   "reported_makespan": 630,
+   "reported_moved_operations": null,
+   "wall_time_s": 0.375,
+   "num_workers": 8,
+   "seed": 0
+  }
+ }
+}

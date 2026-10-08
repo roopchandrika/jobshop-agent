@@ -61,6 +61,7 @@ def describe(ctx: ToolContext, request_id: str) -> dict[str, Any]:
     if status == "pending":
         draft = ctx.store.draft(request.draft_id)
         info["changes"] = draft.changes
+        info["goal"] = draft.goal
         info["comparison"] = compare_schedules(
             ctx, CompareInput(before="committed", after=draft.id)
         ).model_dump(mode="json")

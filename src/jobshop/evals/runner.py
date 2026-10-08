@@ -50,6 +50,8 @@ class ScenarioResult:
     judge_tokens: tuple[int, int] = (0, 0)
     trace: str | None = None
     error: str | None = None
+    cache_read_tokens: int = 0   # input read back from the prompt cache (input_tokens excludes these)
+    cache_write_tokens: int = 0
 
 
 def execute(
@@ -88,6 +90,7 @@ def score(run: Run, judge: tuple[Any, str] | None) -> ScenarioResult:
         id=run.scenario.id, category=run.scenario.category, attempt=run.attempt, status=run.turn.status,
         passed=all(c.passed for c in checks.values() if c.passed is not None),
         steps=run.turn.steps, input_tokens=run.turn.input_tokens, output_tokens=run.turn.output_tokens,
+        cache_read_tokens=run.turn.cache_read_tokens, cache_write_tokens=run.turn.cache_write_tokens,
         cost_usd=run.turn.cost_usd, wall_s=round(run.wall_s, 2),
         model=run.model, llm_ms=run.turn.llm_ms, tool_ms=run.turn.tool_ms,
         tools_called=[c.name for c in run.calls], tool_errors=sum(c.is_error for c in run.calls),
@@ -106,7 +109,7 @@ def run_suite(
     scenarios: list[Scenario],
     client_for: Callable[[Scenario], Any],
     config: AgentConfig,
-    shop: tuple[Instance, Schedule],
+    shop: tuple[Instance, Schedule] | dict[str, tuple[Instance, Schedule]],
     solver_config: SolverConfig,
     *,
     judge: tuple[Any, str] | None = None,
@@ -114,12 +117,17 @@ def run_suite(
     trace_dir: Path | None = None,
     progress: Callable[[ScenarioResult], None] = lambda r: None,
 ) -> list[ScenarioResult]:
+    """Run every scenario ``repeat`` times. ``shop`` is one fixture (the "default" shop) or a dict by name."""
+    shops = shop if isinstance(shop, dict) else {"default": shop}
+    missing = sorted({s.shop for s in scenarios} - set(shops))
+    if missing:  # a setup mistake, found before any (paid) run starts
+        raise ValueError(f"scenarios use shop(s) that were not loaded: {missing}")
     results: list[ScenarioResult] = []
     for scenario in scenarios:
         for attempt in range(1, repeat + 1):
             trace_path = trace_dir / f"{scenario.id}-{attempt}.jsonl" if trace_dir else None
             try:
-                run = execute(scenario, client_for(scenario), config, shop, solver_config, attempt, trace_path)
+                run = execute(scenario, client_for(scenario), config, shops[scenario.shop], solver_config, attempt, trace_path)
                 result = score(run, judge)
             except Exception as e:  # a bug must cost one scenario, not the whole (paid) run
                 result = ScenarioResult(

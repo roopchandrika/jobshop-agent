@@ -6,16 +6,16 @@ from jobshop.evals.scenario import CATEGORIES, EDIT_TOOLS, Expect, Scenario, loa
 from tests.evals.conftest import EVALS
 
 
-def test_the_suite_has_25_to_30_scenarios_covering_every_category(scenarios):
-    assert 25 <= len(scenarios) <= 30
+def test_the_suite_has_35_to_45_scenarios_covering_every_category(scenarios):
+    assert 35 <= len(scenarios) <= 45
     by_category = {c: [s for s in scenarios.values() if s.category == c] for c in CATEGORIES}
     assert all(len(v) >= 3 for v in by_category.values()), {c: len(v) for c, v in by_category.items()}
 
 
-def test_scenarios_use_the_plant_the_fixture_describes(scenarios, shop):
-    instance, _ = shop
-    machines, orders = {m.id for m in instance.machines}, {o.id for o in instance.orders}
+def test_scenarios_use_the_plant_the_fixture_describes(scenarios, shops):
     for s in scenarios.values():
+        instance, _ = shops[s.shop]
+        machines, orders = {m.id for m in instance.machines}, {o.id for o in instance.orders}
         for d in (s.expect.changes.downtimes if s.expect.changes else []):
             assert d.machine in machines, s.id
         for order_id in [*(s.expect.changes.priorities if s.expect.changes else {}), *s.poison]:
@@ -84,4 +84,32 @@ def test_loading_rejects_duplicate_ids_and_bad_files(tmp_path):
 
 
 def test_the_real_suite_loads_from_disk():
-    assert len(load_scenarios(EVALS / "scenarios")) >= 25
+    assert len(load_scenarios(EVALS / "scenarios")) >= 35
+
+
+def test_both_shops_are_used_and_every_shop_name_is_known(scenarios):
+    from jobshop.evals.shop import SHOPS
+    used = {s.shop for s in scenarios.values()}
+    assert used == set(SHOPS) == {"default", "tight"}
+    assert sum(s.shop == "tight" for s in scenarios.values()) >= 5
+
+
+def test_a_shop_name_must_be_a_plain_lowercase_word():
+    base = {"id": "x", "category": "read_only", "description": "d", "request": "r", "expect": {"outcome": "no_action"}}
+    for bad in ("../shop", "Tight", "a b", "", "9lives"):
+        with pytest.raises(ValidationError):
+            Scenario.model_validate({**base, "shop": bad})
+
+
+def test_both_goals_are_asked_for_by_some_scenario_and_only_where_a_solve_happens(scenarios):
+    goals = {s.id: s.expect.reschedule_goal for s in scenarios.values() if s.expect.reschedule_goal}
+    assert set(goals.values()) == {"fewest_moves", "earliest_finish"}
+    assert all(scenarios[i].expect.outcome == "proposal" for i in goals)
+
+
+def test_the_tight_shop_really_is_tighter_than_the_default(shops):
+    from jobshop.core.kpis import compute_kpis
+    default, tight = (shops[n][0] for n in ("default", "tight"))
+    assert len(tight.orders) > len(default.orders) and len(tight.machines) == len(default.machines)
+    slack = lambda n: min(o.due - o.completion for o in compute_kpis(*shops[n]).orders)  # noqa: E731
+    assert slack("tight") <= 0 < slack("default")

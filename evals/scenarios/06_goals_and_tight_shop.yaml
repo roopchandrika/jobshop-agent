@@ -1,0 +1,147 @@
+scenarios:
+  # -- choosing the goal: the same disruption can be re-planned for "move least" or "finish earliest" ------
+
+  - id: ef-01
+    category: rush_order
+    description: The planner says finishing early matters more than disturbing the plan; the agent must pass that on to the solver.
+    request: "Add a rush shaft order due 13:00 today. I care more about everything finishing early than about how much gets moved."
+    expect:
+      outcome: proposal
+      changes: {rush_orders: [{family: shaft, due: "2026-01-05 13:00", priority: 5}]}
+      tools_required: [create_draft, add_rush_order, reschedule, compare_schedules]
+      max_calls: {reschedule: 1}
+      reschedule_goal: earliest_finish
+    judge:
+      notes: Says the plan was re-solved for the earliest finish and that this moves more operations than the default would. Reports the last finish from the comparison.
+
+  - id: ef-02
+    category: simple_downtime
+    description: An outage with an explicit wish to get everything out the door as early as possible.
+    request: "M2 is down from 11:00 to 14:00. Get everything out the door as early as possible, I don't mind reshuffling."
+    expect:
+      outcome: proposal
+      changes: {downtimes: [{machine: M2, start: "2026-01-05 11:00", end: "2026-01-05 14:00"}]}
+      tools_required: [create_draft, simulate_downtime, reschedule, compare_schedules]
+      max_calls: {reschedule: 1}
+      reschedule_goal: earliest_finish
+    judge:
+      notes: Reports the effect on lateness and on the last finish, and that more operations move because finishing early was the goal.
+
+  - id: ef-03
+    category: simple_downtime
+    description: The planner asks for the least disturbance; that is the default goal and must not be swapped for the other.
+    request: "M2 is down from 11:00 to 14:00. Change as little of the plan as you can."
+    expect:
+      outcome: proposal
+      changes: {downtimes: [{machine: M2, start: "2026-01-05 11:00", end: "2026-01-05 14:00"}]}
+      tools_required: [create_draft, simulate_downtime, reschedule, compare_schedules]
+      max_calls: {reschedule: 1}
+      reschedule_goal: fewest_moves
+    judge:
+      notes: Reports how many operations moved and the effect on lateness. May mention that the last finish moves later.
+
+  - id: q-04
+    category: read_only
+    description: A counting and margin question; the answer should quote the counts and slack the tools give, not work them out.
+    request: "How many orders are on time right now, and which one has the least slack?"
+    expect:
+      outcome: no_action
+      tools_any: [[list_orders, get_schedule]]
+      tools_forbidden: ["@edits"]
+    judge:
+      notes: "Says all 12 orders are on time and that O-101 has the least slack, 5 minutes. Takes the figures from the tool results."
+    oracle:
+      calls: [{tool: list_orders, args: {}}]
+      say: "All 12 orders are on time. O-101 has the least slack, 5 minutes."
+
+  # -- the tight shop: 19 orders on the same four machines; almost any outage makes something late ------------
+
+  - id: ts-01
+    shop: tight
+    category: simple_downtime
+    description: On the tight shop an outage makes an order late; the answer must say which and by how much.
+    request: "M2 is down from 11:00 to 15:00."
+    expect:
+      outcome: proposal
+      changes: {downtimes: [{machine: M2, start: "2026-01-05 11:00", end: "2026-01-05 15:00"}]}
+      tools_required: [create_draft, simulate_downtime, reschedule, compare_schedules]
+      max_calls: {reschedule: 1}
+    judge:
+      notes: Says which order becomes late and by how many minutes, from the comparison, and does not call a late order fine.
+
+  - id: ts-02
+    shop: tight
+    category: rush_order
+    description: A rush order on the tight shop, with no preference stated; the default goal applies.
+    request: "Add a rush shaft order due 13:00 today."
+    expect:
+      outcome: proposal
+      changes: {rush_orders: [{family: shaft, due: "2026-01-05 13:00", priority: 5}]}
+      tools_required: [create_draft, add_rush_order, reschedule, compare_schedules]
+      max_calls: {reschedule: 1}
+      reschedule_goal: fewest_moves
+    judge:
+      notes: Reports whether the new order meets 13:00, how many operations move, and that the last finish moves later.
+
+  - id: ts-03
+    shop: tight
+    category: multiple_disruptions
+    description: A long outage and a priority change together on the tight shop; one draft, one solve.
+    request: "M4 is down from 10:00 to 14:00, and O-104 just became urgent."
+    expect:
+      outcome: proposal
+      changes:
+        downtimes: [{machine: M4, start: "2026-01-05 10:00", end: "2026-01-05 14:00"}]
+        priorities: {O-104: 5}
+      tools_required: [create_draft, simulate_downtime, change_priority, reschedule, compare_schedules]
+      max_calls: {reschedule: 1, create_draft: 1}
+    judge:
+      notes: Reports the combined effect, including which orders become late. Does not claim the urgent order caused or avoided the lateness unless the comparison shows it.
+
+  - id: ts-04
+    shop: tight
+    category: rush_order
+    description: A rush order on the tight shop with an explicit wish for the earliest finish.
+    request: "Add a rush shaft order due 13:00 today. Finish everything as early as possible; I don't mind how many operations move."
+    expect:
+      outcome: proposal
+      changes: {rush_orders: [{family: shaft, due: "2026-01-05 13:00", priority: 5}]}
+      tools_required: [create_draft, add_rush_order, reschedule, compare_schedules]
+      max_calls: {reschedule: 1}
+      reschedule_goal: earliest_finish
+    judge:
+      notes: Says the plan was re-solved for the earliest finish and reports the last finish and the number of operations moved from the comparison.
+
+  - id: ts-05
+    shop: tight
+    category: read_only
+    description: Which orders are close to their due time; the answer should use the slack figures the tools give.
+    request: "Which orders will finish within 15 minutes of their due time?"
+    expect:
+      outcome: no_action
+      tools_any: [[list_orders, get_schedule]]
+      tools_forbidden: ["@edits"]
+    judge:
+      notes: "Names O-102, O-112, O-114 and O-115 (slack 10, 0, 0 and 15 minutes) and does not include orders with more slack."
+    oracle:
+      calls: [{tool: list_orders, args: {}}]
+      say: "O-102 (10 minutes of slack), O-112 (0), O-114 (0) and O-115 (15) finish within 15 minutes of their due time."
+
+  - id: ts-06
+    shop: tight
+    category: impossible
+    description: A power cut takes every machine down for the rest of the day; no schedule can exist.
+    request: "We have a power cut. Every machine is down from 10:00 to 22:00."
+    expect:
+      outcome: infeasible
+      changes:
+        downtimes:
+          - {machine: M1, start: "2026-01-05 10:00", end: "2026-01-05 22:00"}
+          - {machine: M2, start: "2026-01-05 10:00", end: "2026-01-05 22:00"}
+          - {machine: M3, start: "2026-01-05 10:00", end: "2026-01-05 22:00"}
+          - {machine: M4, start: "2026-01-05 10:00", end: "2026-01-05 22:00"}
+      tools_required: [create_draft, simulate_downtime, reschedule]
+    judge:
+      notes: Tells the planner plainly that no valid schedule exists, from the solver result. Must not present a plan or invent a cause.
+    oracle:
+      say: "No valid schedule exists while every machine is down until 22:00."

@@ -17,17 +17,17 @@ IDS = [s.id for s in load_scenarios(EVALS / "scenarios")]
 
 
 @pytest.mark.parametrize("scenario_id", IDS)
-def test_the_reference_agent_passes(scenario_id, scenarios, shop):
+def test_the_reference_agent_passes(scenario_id, scenarios, shops):
     scenario = scenarios[scenario_id]
-    run = execute(scenario, OracleClient(scenario), AgentConfig(model="oracle"), shop, FAST)
+    run = execute(scenario, OracleClient(scenario), AgentConfig(model="oracle"), shops[scenario.shop], FAST)
     result = score(run, judge=None)
     assert result.passed, {name: c["details"] for name, c in result.checks.items() if c["passed"] is False}
 
 
 @pytest.mark.parametrize("scenario_id", [s.id for s in load_scenarios(EVALS / "scenarios") if s.expect.outcome == "infeasible"])
-def test_infeasible_scenarios_are_proven_infeasible_not_just_unsolved(scenario_id, scenarios, shop):
+def test_infeasible_scenarios_are_proven_infeasible_not_just_unsolved(scenario_id, scenarios, shops):
     scenario = scenarios[scenario_id]
-    run = execute(scenario, OracleClient(scenario), AgentConfig(model="oracle"), shop, FAST)
+    run = execute(scenario, OracleClient(scenario), AgentConfig(model="oracle"), shops[scenario.shop], FAST)
     [reschedule] = [c for c in run.calls if c.name == "reschedule"]
     assert reschedule.result["solve"]["status"] == "INFEASIBLE"  # a timeout (UNKNOWN) would make the scenario depend on speed
 
