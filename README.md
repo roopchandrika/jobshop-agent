@@ -197,4 +197,4 @@ docs/                    MCP.md, SAFETY.md, EVALS.md, OBSERVABILITY.md
 ```
 
 Built in phases, each reviewed before the next: proposal, core, tools and agent, MCP server, safety,
-evals, observability, API and UI. `CLAUDE.md` records the decisions and working rules.
+evals, observability, API and UI. `PROJECT_RULES.md` records the decisions and working rules.

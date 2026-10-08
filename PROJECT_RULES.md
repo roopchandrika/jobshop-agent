@@ -1,4 +1,4 @@
-# CLAUDE.md — working rules for this repo
+# PROJECT_RULES.md — working rules for this repo
 
 Portfolio project: an LLM agent that helps production planners handle job-shop
 disruptions by calling a CP-SAT scheduler as tools. The owner is learning AI
