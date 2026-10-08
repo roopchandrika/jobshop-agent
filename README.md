@@ -79,6 +79,7 @@ uv run pytest                            # about a minute; the 2 skipped tests c
 | What | Command |
 |---|---|
 | **Web UI** | `uv run python -m jobshop.api` then open http://127.0.0.1:8000 |
+| **Web UI demo, no API key** (scripted model, real solver) | `uv run python scripts/demo_server.py` then open http://127.0.0.1:8765 |
 | Chat in a terminal | `uv run python -m jobshop.agent.cli --now "2026-01-05 12:00"` |
 | MCP server for Claude Desktop/Code | see [docs/MCP.md](docs/MCP.md) |
 | Evals without an API key | `uv run python -m jobshop.evals run --oracle` |
@@ -191,6 +192,7 @@ src/jobshop/agent/       hand-written loop, prompts, conversation, traces, chat 
 src/jobshop/mcp_server/  stdio MCP server and the human `admin` command
 src/jobshop/api/         FastAPI app and the web UI (static/)
 src/jobshop/evals/       scenarios, checks, judge, runner, comparison, reference agent
+scripts/                 demo_server.py: the web UI with a scripted stand-in for the model
 evals/                   fixture shop, 29 scenarios (YAML), results (gitignored)
 tests/                   mirrors src/; fake_llm.py is a scripted stand-in returning real SDK messages
 docs/                    MCP.md, SAFETY.md, EVALS.md, OBSERVABILITY.md

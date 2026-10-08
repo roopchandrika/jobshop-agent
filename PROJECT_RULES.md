@@ -128,6 +128,7 @@ src/jobshop/tools/   store (in-memory or shared JSON file), approval, views, fun
 src/jobshop/agent/   loop (hand-written tool-use loop), prompts, trace (JSONL), cli
 src/jobshop/mcp_server/  server (stdio MCP server), admin (init/status/approve/deny/clock CLI)
 src/jobshop/api/     app (FastAPI), views (Gantt/proposal data), server (python -m jobshop.api), static/ (UI)
+scripts/demo_server.py  web UI + real solver with a SCRIPTED model, for trying it without an API key (tested)
 tests/core|tools|agent|mcp/   tests/helpers.py = tiny builders; tests/fake_llm.py = scripted
                           fake client that returns real anthropic Message objects
 src/jobshop/evals/   scenario (YAML schema), shop (fixture), checks, numbers, judge, runner, report,
