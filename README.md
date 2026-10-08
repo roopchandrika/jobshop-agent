@@ -11,8 +11,9 @@ on the Anthropic SDK (no agent framework), and all data is synthetic.
 > **Status.** Built, with 749 automated tests (plus 2 opt-in tests that call the real API) and CI on every
 > push. A first evaluation on a real model has been run: 29 scenarios, one run each, LLM judge off. Results
 > are [below](#results-from-a-real-model), including where they fall short. Since then the suite grew to 39
-> scenarios on two shops, and the agent gained prompt caching and a second solver goal; a judged, repeated
-> two-model comparison is being run and is not reported here yet. Not yet done: connecting Claude
+> scenarios on two shops, and the agent gained prompt caching and a second solver goal. A judged, repeated
+> two-model comparison was started and then stopped early to save API credit, so **no comparison has been
+> completed**. Not yet done: that comparison, the LLM judge over the full suite, and connecting Claude
 > Desktop/Code to the MCP server. See [What is and isn't verified](#what-is-and-isnt-verified).
 
 ![The web UI after an outage on M1: KPI tiles with deltas, a proposal with Approve and Reject, and the live and proposed Gantt charts](docs/images/web-ui.png)
@@ -116,7 +117,10 @@ and told the planner what it asked for (read by hand, in addition to the checks 
 - Prompt caching is on, so the roughly 5,000-token prompt is no longer paid for at full price on every call.
 - The suite has 39 scenarios on two shops (a tight shop where outages make orders late).
 
-None of this has been measured on a real model over the full suite yet.
+None of this has been measured on a real model over the full suite yet. A judged run (3 runs per scenario,
+Sonnet first) was stopped after 46 runs, the first 15 scenarios; all 46 were reported as passing. That is
+a partial result from the console log only (no saved report, so I cannot confirm how many judge grades
+succeeded), and it is not counted as evidence here.
 
 ## How it works
 
@@ -268,7 +272,7 @@ it opens instantly. Without an API key it still shows the plan and chat is disab
 | Verified | Not verified |
 |---|---|
 | The solver against an independent validator and recomputation | The LLM judge on a real model (never run) |
-| Tools, loop, approval, store and the MCP server over real stdio, by 749 automated tests, run by CI on every push | A comparison of two real models (never run) |
+| Tools, loop, approval, store and the MCP server over real stdio, by 749 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
 | The web API (CSRF, Origin, Host, CSP, approval fingerprint) over a real socket | The live prompt-injection test (`JOBSHOP_RUN_LIVE=1`, opt-in; the eval scenarios gave a first read instead) |
 | The UI in a real browser: chat, proposal, Approve, charts, dark mode, phone width, and HTML in answers staying inert text | Claude Desktop/Code connecting to the MCP server |
 | A real model on 29 scenarios, deterministic checks only (results above); one real chat in the web UI, checked by hand | The Approve flow with a real model; screen readers; browsers other than one |

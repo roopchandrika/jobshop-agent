@@ -28,7 +28,7 @@ the code on purpose.
 | after | Rename rules file, scripted demo, fixes from the first real answer | done | `35d212c`, `043bc28`, `2add2e2` |
 | after | First real-model eval (29 scenarios, no judge): 22/29, all misses in the numbers check | done | see [Honest status](#honest-status) |
 | after | Numbers-check scope, slack/count fields, `earliest_finish` goal, prompt caching, CI, 39 scenarios on two shops | done and tested; not yet measured on the full suite with a real model | this commit |
-| next | Judged, repeated two-model comparison (Sonnet vs Opus, judge Fable) | **running; results to be added** | see [What is next](#what-is-next) |
+| next | Judged, repeated two-model comparison (Sonnet vs Opus, judge Fable) | **started, stopped at 46 of 234 runs to save credit; no report** | see [What is next](#what-is-next) |
 
 ## Phase by phase
 
@@ -149,8 +149,10 @@ About 6,300 lines of source, 5,800 lines of tests.
 ## What is next
 
 **Now (small, cheap)**
-1. Put real prices in `.env` so costs show as dollars (the comparison is running with tokens only).
-2. Read the comparison and the judge's scores, fix what they show, and put the table in the README.
+1. Put real prices in `.env` so costs show as dollars.
+2. Decide how much of the comparison to pay for. The full one (2 models, 3 runs each, 39 scenarios) is about
+   6 million agent tokens plus judge calls and about an hour; a cheaper start is one judged run of one model,
+   or only the 10 new scenarios. Then put the table in the README.
 
 **Next**
 3. Connect Claude Desktop or Claude Code to the MCP server and note what actually happens.
