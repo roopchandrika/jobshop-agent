@@ -5,11 +5,13 @@ description = "LLM agent that helps planners handle job-shop disruptions by call
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=1.12.0",
+    "fastapi>=0.142.4",
     "mcp>=2.3.0",
     "ortools>=9.15.6755",
     "pydantic>=2.13.5",
     "python-dotenv>=1.2.4",
     "pyyaml>=6.0.3",
+    "uvicorn>=0.54.0",
 ]
 
 [dependency-groups]

@@ -19,6 +19,9 @@ The committed schedule, and the planner's trust in what they are shown before th
 | Text redraws the terminal to fake the approval screen | Everything printed by the chat CLI and `admin` goes through `terminal_safe`, which removes escape sequences and control, bidi and zero-width characters. | `test_text`, `test_injection`, `test_admin` |
 | The model misdescribes its own changes | `changes_made` is not a field it can fill; it is copied from the draft. | `test_injection`, `test_loop` |
 | A human approves something stale | Tokens and requests are bound to the plan version; a clock move or a commit makes older drafts and requests stale; `admin approve` re-validates at the moment of approval and never holds the lock while waiting for the person. | `test_approval_requests`, `test_admin` |
+| A draft is edited after the human looked, but solves to the same schedule | Approval binds to a **proposal digest** of the schedule *and the draft's edits*, not the schedule alone. (A schedule-only fingerprint let an edit that moved nothing ride on an earlier approval; found while building the web UI.) | `test_proposal_digest`, `test_api` |
+| Another web page presses Approve (CSRF), or a rebinding attack reaches the local server | Every state-changing request needs a per-run token that only the page this server served can read; `Origin` and `Host` are checked; the server listens on loopback only and refuses other addresses; the web UI also sends the digest of the proposal it displayed. | `test_api`, `test_server` (over a real socket) |
+| Model or note text runs as script in the page | The page only inserts text nodes (a test forbids `innerHTML` and friends in the script), the Content-Security-Policy forbids inline script and remote loads, and the API returns model text as JSON data. Checked in a real browser with an answer containing `<img onerror=…>`: it displayed as literal text. | `test_api`, browser check |
 
 ## What the text cleaning is, and is not
 

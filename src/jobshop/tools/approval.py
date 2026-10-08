@@ -22,7 +22,7 @@ import secrets
 import time
 from collections.abc import Callable
 
-from jobshop.core.models import Schedule
+from jobshop.core.models import Instance, Schedule
 
 
 class ApprovalError(Exception):
@@ -35,6 +35,17 @@ def schedule_digest(schedule: Schedule) -> str:
         (a.op_id, a.order_id, a.machine_id, a.start, a.end) for a in schedule.assignments
     )
     return hashlib.sha256(json.dumps(rows).encode()).hexdigest()
+
+
+def proposal_digest(instance: Instance, schedule: Schedule) -> str:
+    """Fingerprint of everything a commit would change: the schedule AND the edits behind it.
+
+    The schedule alone is not enough. A draft can be edited after a person reviewed it and still
+    solve to the identical schedule (say, another order's priority raised where nothing moves);
+    the schedule digest would match while the committed plan silently carried an edit nobody saw.
+    """
+    edits = json.dumps(instance.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256((schedule_digest(schedule) + "|" + edits).encode()).hexdigest()
 
 
 def _b64(data: bytes) -> str:

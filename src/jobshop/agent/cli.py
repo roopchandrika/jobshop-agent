@@ -18,18 +18,17 @@ from typing import Any
 import anthropic
 from dotenv import load_dotenv
 
-from jobshop.agent.loop import AgentConfig, FinalResponse, TurnResult, run_turn
-from jobshop.agent.prompts import build_system_prompt
+from jobshop.agent.conversation import Conversation
+from jobshop.agent.loop import AgentConfig, FinalResponse, TurnResult
 from jobshop.agent.trace import Tracer
 from jobshop.core.generator import GeneratorSettings, generate_instance
 from jobshop.core.kpis import compute_kpis
 from jobshop.core.solver import SolverConfig, solve
 from jobshop.tools import views
-from jobshop.tools.approval import ApprovalAuthority, schedule_digest
+from jobshop.tools.approval import ApprovalAuthority
 from jobshop.tools.errors import ToolError
-from jobshop.tools.human import kpi_lines
+from jobshop.tools.human import commit_draft, kpi_lines
 from jobshop.tools.functions import ToolContext
-from jobshop.tools.registry import ToolRegistry
 from jobshop.tools.store import Store
 from jobshop.tools.text import terminal_safe
 
@@ -93,15 +92,16 @@ class ChatSession:
         out: Callable[[str], None] = print,
         ask: Callable[[str], str] = input,
     ) -> None:
-        self.client, self.ctx, self.config = client, ctx, config
-        self.registry = ToolRegistry(ctx)
-        self.tracer = tracer or Tracer()
+        self.ctx = ctx
+        self.conversation = Conversation(client, ctx, config, tracer)
         # Everything shown to the planner passes through terminal_safe, whatever its source: a
         # model's summary (or a note it echoed) must not be able to redraw the approval screen.
         self.out: Callable[[str], None] = lambda text: out(terminal_safe(text))
         self.ask = ask
-        self.messages: list[dict[str, Any]] = []
-        self._notices: list[str] = []  # facts from this program (not the planner) for the next turn
+
+    @property
+    def messages(self) -> list[dict[str, Any]]:
+        return self.conversation.messages
 
     # -- one line of input --------------------------------------------------------------------
 
@@ -113,15 +113,7 @@ class ChatSession:
         if line.startswith("/"):
             return self._command(line)
 
-        text = line
-        if self._notices:
-            note = " ".join(self._notices)
-            text = f"[Notice from the scheduling system, not from the planner: {note}]\n\n{line}"
-            self._notices.clear()
-        result = run_turn(
-            self.client, self.registry, build_system_prompt(self.ctx),
-            self.messages, text, self.config, self.tracer,
-        )
+        result = self.conversation.say(line)
         self._show(result)
         if result.final is not None and result.final.needs_approval:
             self._offer_commit(result.final)
@@ -153,24 +145,17 @@ class ChatSession:
         answer = self.ask(f"\nCommit draft {draft.id} to the live schedule? [y/N] ").strip().lower()
         if answer not in ("y", "yes"):
             self.out(f"Not committed. Draft {draft.id} is kept; the live plan is unchanged.")
-            self._notices.append(f"The planner chose NOT to commit draft {draft.id}; the live plan is unchanged.")
+            self.conversation.notify(f"The planner chose NOT to commit draft {draft.id}; the live plan is unchanged.")
             return
 
-        assert draft.schedule is not None
-        token = self.ctx.authority.issue(
-            draft_id=draft.id, base_version=draft.base_version,
-            schedule_digest=schedule_digest(draft.schedule),
-        )
         try:
-            out = self.registry.call(
-                "commit_schedule", {"draft_id": draft.id, "approval_token": token}, allow_hidden=True
-            )
+            out = commit_draft(self.ctx, draft.id)
         except ToolError as e:
             self.out(f"Commit failed: {e}")
-            self._notices.append(f"Committing draft {draft.id} failed: {e}")
+            self.conversation.notify(f"Committing draft {draft.id} failed: {e}")
             return
         self.out(f"Committed. The live plan is now version {out['new_version']}.")
-        self._notices.append(f"The planner approved and committed draft {draft.id}; the live plan is now version {out['new_version']}.")
+        self.conversation.notify(f"The planner approved and committed draft {draft.id}; the live plan is now version {out['new_version']}.")
 
     # -- slash commands -----------------------------------------------------------------------
 
@@ -201,7 +186,7 @@ class ChatSession:
             self.out(f"Could not set the clock: {e}. Use /clock YYYY-MM-DD HH:MM, moving forward only.")
             return
         self.out(f"Clock is now {text}. Live plan is version {version}; earlier drafts are stale.")
-        self._notices.append(f"The plant clock was moved to {text}; any earlier drafts are now stale.")
+        self.conversation.notify(f"The plant clock was moved to {text}; any earlier drafts are now stale.")
 
 
 def main(argv: list[str] | None = None) -> int:

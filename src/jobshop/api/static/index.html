@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{CSRF_TOKEN}}">
+  <title>Shop Floor Assistant</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Shop Floor Assistant</h1>
+    <p id="meta" class="meta" aria-live="polite"></p>
+  </header>
+
+  <main>
+    <section id="chat" aria-label="Chat with the assistant">
+      <div id="transcript" role="log" aria-live="polite" tabindex="0"></div>
+      <p id="activity" class="activity" role="status" aria-live="polite"></p>
+      <div id="chips" class="chips" aria-label="Example requests"></div>
+      <form id="composer">
+        <label for="message" class="sr-only">Message to the assistant</label>
+        <textarea id="message" rows="3" maxlength="2000" placeholder="Describe a disruption, e.g. “M2 is down from 11:00 to 14:00”"></textarea>
+        <button id="send" type="submit">Send</button>
+      </form>
+    </section>
+
+    <section id="board" aria-label="Plan">
+      <p id="banner" class="banner" role="status" hidden></p>
+      <div id="kpis" class="kpis" aria-label="Key figures"></div>
+
+      <section id="proposal" class="proposal" aria-labelledby="proposal-title" hidden>
+        <h2 id="proposal-title"></h2>
+        <ul id="proposal-changes" class="changes"></ul>
+        <div id="proposal-facts" class="facts"></div>
+        <p class="notlive"><strong>Nothing is live until you approve.</strong> The assistant cannot approve; only this button can.</p>
+        <p id="proposal-error" class="error" role="alert" hidden></p>
+        <div class="actions">
+          <button id="approve" type="button" class="primary">Approve and make live</button>
+          <button id="reject" type="button">Reject</button>
+        </div>
+      </section>
+
+      <section id="live-chart" class="chart" aria-label="Live plan chart"></section>
+      <section id="draft-chart" class="chart" aria-label="Proposed plan chart" hidden></section>
+    </section>
+  </main>
+
+  <div id="tip" class="tip" role="tooltip" hidden></div>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

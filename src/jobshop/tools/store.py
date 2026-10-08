@@ -83,7 +83,7 @@ class ApprovalRequest:
     id: str
     draft_id: str
     base_version: int
-    schedule_digest: str  # what the human will be shown and approve: this exact schedule
+    schedule_digest: str  # what the human will be shown and approve: this exact schedule AND its edits (a proposal digest)
     created_at: float
     status: str = "pending"  # pending | approved | denied (expired/stale are derived)
     decided_at: float | None = None

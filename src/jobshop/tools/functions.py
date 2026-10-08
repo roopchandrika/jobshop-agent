@@ -27,7 +27,7 @@ from jobshop.core.reschedule import plan_reschedule
 from jobshop.core.solver import SolverConfig, solve
 from jobshop.core.validator import validate_schedule
 from jobshop.tools import views
-from jobshop.tools.approval import ApprovalAuthority, ApprovalError, schedule_digest
+from jobshop.tools.approval import ApprovalAuthority, ApprovalError, proposal_digest
 from jobshop.tools.errors import ToolError
 from jobshop.tools.store import MAX_PENDING_REQUESTS, Draft, Store
 from jobshop.tools.text import untrusted_text
@@ -546,7 +546,7 @@ def commit_schedule(ctx: ToolContext, a: CommitInput) -> CommitOut:
             a.approval_token,
             draft_id=draft.id,
             base_version=draft.base_version,
-            schedule_digest=schedule_digest(draft.schedule),
+            schedule_digest=proposal_digest(draft.instance, draft.schedule),
         )
     except ApprovalError as e:
         raise ToolError(f"approval rejected: {e}") from None
@@ -606,7 +606,7 @@ def request_commit(ctx: ToolContext, a: RequestCommitInput) -> RequestCommitOut:
     if not report.ok:
         raise ToolError(f"refusing to request approval for an invalid schedule ({report.violations[0].message})")
 
-    digest = schedule_digest(draft.schedule)
+    digest = proposal_digest(draft.instance, draft.schedule)
     existing = next(
         (
             r for r in ctx.store.requests()

@@ -107,6 +107,16 @@ the Phase 0 review and take precedence over the spec where they differ.
   (`evals/stats.py`): do not describe a model as better on 29 scenarios unless the report supports it.
   `compare --demo` uses scripted agents and says nothing about real models.
 
+- Phase 7 web UI (`src/jobshop/api/`): FastAPI + a dependency-free static page. One planner, in-memory
+  store, loopback only (`server.py` refuses other hosts). `agent/conversation.py` is the turn logic shared
+  by the chat CLI and the API; `tools/human.py:commit_draft` is the one human-only commit helper (CLI and
+  `/api/approve` both use it). Approval binds to `approval.proposal_digest(instance, schedule)` (edits AND
+  schedule), never to `schedule_digest` alone. Every state-changing endpoint needs the CSRF token
+  (`guard`); the page must keep using text nodes only (a test forbids `innerHTML`). Chart colours follow
+  the validated reference palette: order identity is a direct label, never a hue (12 orders > 8 hues).
+  A long turn runs in a thread; the page polls `/api/chat/{id}` for progress; reads return `busy` instead
+  of blocking while the agent owns the store.
+
 **Non-goals:** setup times, workers/labor, preemption, buffers, auth, multi-user.
 
 ## Layout, commands, conventions
@@ -117,6 +127,7 @@ src/jobshop/tools/   store (in-memory or shared JSON file), approval, views, fun
                      registry, outcome, text (cleaning), human (HUMAN-ONLY approve/deny)   (no LLM imports)
 src/jobshop/agent/   loop (hand-written tool-use loop), prompts, trace (JSONL), cli
 src/jobshop/mcp_server/  server (stdio MCP server), admin (init/status/approve/deny/clock CLI)
+src/jobshop/api/     app (FastAPI), views (Gantt/proposal data), server (python -m jobshop.api), static/ (UI)
 tests/core|tools|agent|mcp/   tests/helpers.py = tiny builders; tests/fake_llm.py = scripted
                           fake client that returns real anthropic Message objects
 src/jobshop/evals/   scenario (YAML schema), shop (fixture), checks, numbers, judge, runner, report,
@@ -142,6 +153,7 @@ tests/injection.py   shared poisoned-note scenario + checker (scripted and live 
   Fast loop: `uv run pytest -m "not slow"`. Real-model injection test (calls the API, opt-in):
   `JOBSHOP_RUN_LIVE=1 uv run pytest tests/agent/test_live_injection.py -v -s`.
   Evals: `uv run python -m jobshop.evals run --oracle` (no API) or `... run` (needs the three model env vars).
+  Web UI: `uv run python -m jobshop.api` (http://127.0.0.1:8000; chat needs ANTHROPIC_API_KEY and ANTHROPIC_MODEL).
 - Run the agent: copy `.env.example` to `.env`, set `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`,
   then `uv run python -m jobshop.agent.cli --now "2026-01-05 12:00"`. Traces go to `logs/traces/`.
 - Tool outputs come from `tools/views.py` only: display-ready numbers and plant-local times.

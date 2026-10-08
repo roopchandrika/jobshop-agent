@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
-from jobshop.tools.approval import schedule_digest
+from jobshop.tools.approval import proposal_digest
 from jobshop.tools.errors import ToolError
 from jobshop.tools.functions import CompareInput, ToolContext, compare_schedules
 from jobshop.tools.registry import ToolRegistry
@@ -30,6 +30,23 @@ def kpi_lines(before: KPIView, after: KPIView) -> list[str]:
     lines = [f"  {'':24}{'live plan':>18}{'draft':>18}"]
     lines += [f"  {name:24}{str(b):>18}{str(a):>18}" for name, b, a in rows]
     return lines
+
+
+def commit_draft(ctx: ToolContext, draft_id: str, reviewed_digest: str | None = None) -> dict[str, Any]:
+    """Commit a draft because a person just said yes to it (chat prompt or web Approve button).
+
+    A token is minted for the draft's schedule *as it is now*. If ``reviewed_digest`` is given (the web
+    UI sends the fingerprint of what was on screen), a draft that has changed since is refused, so a
+    person can only ever approve what they were shown.
+    """
+    draft = ctx.store.draft(draft_id)
+    if draft.schedule is None:
+        raise ToolError(f"draft {draft_id} has no schedule to commit")
+    digest = proposal_digest(draft.instance, draft.schedule)
+    if reviewed_digest is not None and digest != reviewed_digest:
+        raise ToolError(f"draft {draft_id} is not the proposal you reviewed (it has changed); review it again before approving")
+    token = ctx.authority.issue(draft_id=draft.id, base_version=draft.base_version, schedule_digest=digest)
+    return ToolRegistry(ctx).call("commit_schedule", {"draft_id": draft.id, "approval_token": token}, allow_hidden=True)
 
 
 def pending_requests(ctx: ToolContext) -> list[ApprovalRequest]:
@@ -58,7 +75,7 @@ def approve(ctx: ToolContext, request_id: str) -> dict[str, Any]:
         raise ToolError(f"request {request_id} is {status}, not pending")
 
     draft = ctx.store.draft(request.draft_id)
-    if draft.schedule is None or schedule_digest(draft.schedule) != request.schedule_digest:
+    if draft.schedule is None or proposal_digest(draft.instance, draft.schedule) != request.schedule_digest:
         raise ToolError(
             f"draft {draft.id} was changed after approval was requested; "
             "what you reviewed is no longer what would be committed. Ask for approval again."

@@ -6,7 +6,7 @@ from jobshop.core.kpis import compute_kpis
 from jobshop.core.models import Instance, SolveStatus
 from jobshop.core.reschedule import plan_reschedule
 from jobshop.core.validator import validate_schedule
-from jobshop.tools.approval import schedule_digest
+from jobshop.tools.approval import proposal_digest
 from jobshop.tools.errors import ToolError
 from jobshop.tools.registry import ToolRegistry
 from tests.helpers import build_ctx
@@ -20,7 +20,7 @@ def approve(ctx, draft_id):
     """What the human-facing layer does: mint a token bound to this draft's exact schedule."""
     d = ctx.store.draft(draft_id)
     return ctx.authority.issue(
-        draft_id=d.id, base_version=d.base_version, schedule_digest=schedule_digest(d.schedule)
+        draft_id=d.id, base_version=d.base_version, schedule_digest=proposal_digest(d.instance, d.schedule)
     )
 
 
