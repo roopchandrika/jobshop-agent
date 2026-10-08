@@ -119,7 +119,7 @@ const KPIS = [
   { key: "total_tardiness_min", label: "Total tardiness", unit: "min", delta: "delta_total_tardiness_min", better: "lower" },
   { key: "weighted_tardiness", label: "Weighted tardiness", delta: "delta_weighted_tardiness", better: "lower" },
   { key: "all_orders_done_at", label: "All orders done", delta: "delta_makespan_min", unit_delta: "min", better: "lower", text: true },
-  { key: "mean_utilization_pct", label: "Mean utilization", unit: "%", delta: "delta_mean_utilization_pct", better: null },
+  { key: "mean_utilization_pct", label: "Mean utilization", unit: "%", delta: "delta_mean_utilization_pct", better: null, hint: "now to last finish; falls if the finish moves later" },
 ];
 
 function deltaChip(value, better, unit) {
@@ -147,6 +147,7 @@ function renderKpis() {
     const tile = h("div", { class: "tile" }, h("p", { class: "label" }, k.label),
       h("p", { class: k.text ? "value text" : "value" }, k.text ? shortStamp(live[k.key]) : String(live[k.key]),
         k.unit && !k.text ? h("span", { class: "unit" }, k.unit) : null));
+    if (k.hint) tile.append(h("p", { class: "hint" }, k.hint));
     if (diff) {
       const after = k.text ? shortStamp(diff.kpi_after[k.key]) : diff.kpi_after[k.key];
       tile.append(h("p", { class: "draft" }, `Draft: ${after}${k.unit && !k.text ? " " + k.unit : ""}`,

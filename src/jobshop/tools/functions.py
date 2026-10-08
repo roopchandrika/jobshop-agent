@@ -50,6 +50,15 @@ NOT_PROVEN_NOTE = (
 )
 
 
+# Sent with every schedule and comparison. Utilization is busy time over open time between now and the
+# last finish, so a later finish stretches the window and lowers it even when the same work is done.
+UTILIZATION_NOTE = (
+    "Utilization is each machine's busy share of its open time from now until the last operation "
+    "finishes. It falls when the last finish moves later even if the same work gets done, so a drop "
+    "does not mean idle machines or spare capacity."
+)
+
+
 @dataclass
 class ToolContext:
     store: Store
@@ -159,6 +168,7 @@ class ScheduleOut(View):
     draft_changes: list[str]
     assignments: list[AssignmentView]
     assignments_note: str
+    utilization_note: str = UTILIZATION_NOTE
 
 
 def get_schedule(ctx: ToolContext, a: GetScheduleInput) -> ScheduleOut:
@@ -497,6 +507,7 @@ class CompareOut(View):
     solve_after: SolveView
     diff: DiffView
     confidence_note: str | None
+    utilization_note: str = UTILIZATION_NOTE
 
 
 def compare_schedules(ctx: ToolContext, a: CompareInput) -> CompareOut:

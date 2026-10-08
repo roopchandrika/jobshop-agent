@@ -117,6 +117,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .tile .value { font-size: 28px; font-weight: 600; margin: 2px 0 0; line-height: 1.15; }
 .tile .value.text { font-size: 22px; }
 .tile .unit { font-size: 13px; font-weight: 400; color: var(--ink-2); margin-left: 4px; }
+.tile .hint { margin: 2px 0 0; font-size: 12px; color: var(--ink-2); }
 .tile .draft { margin: 6px 0 0; color: var(--ink-2); font-size: 13px; }
 .delta { font-weight: 600; margin-left: 6px; white-space: nowrap; }
 .delta.better { color: var(--good-text); }
