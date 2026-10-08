@@ -82,8 +82,8 @@ judge. Output goes to `evals/results/<run>/`: `comparison.md` (the side-by-side)
 
 ## What this does not tell you
 
-- **The real comparison has not been run** (no API key was available while building). The demo
-  uses scripted agents; its numbers describe the report, not any model.
+- **The two-model comparison has not been run on real models yet.** The demo uses scripted agents; its
+  numbers describe the report, not any model. (A single-model real run exists; see [EVALS.md](EVALS.md).)
 - **Latency is noisy**: it includes the network, API load at that minute and rate limiting. Repeat
   runs at different times before trusting a difference of less than about 30%.
 - **Quality is only what the scenarios measure.** A model can pass all 29 and still be worse at a

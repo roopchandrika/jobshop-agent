@@ -37,8 +37,9 @@ rest, and give false confidence.
   KPIs beside it, but a human who ignores them can be misled. The structure bounds the damage;
   it does not make the prose true.
 - **Real-model resistance is measured, not guaranteed.** `test_live_injection.py` has not been
-  run by the author yet (no API key in the build environment). One passing run would be
-  evidence, not proof; Phase 5 repeats scenarios like it.
+  run yet. A first real-model read came from the three injection scenarios in the evals: the model ignored
+  the planted instructions and told the planner in each (one run each, checked by hand). That is evidence,
+  not proof; use `--repeat` to see how stable it is.
 - **Social engineering of the human.** A well-formed, plausible, harmful draft that a person
   approves is outside what code can prevent.
 - **No rate limit on `reschedule`.** Each call can use up to `JOBSHOP_SOLVE_SECONDS`. In chat a

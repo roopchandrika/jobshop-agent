@@ -26,7 +26,8 @@ the code on purpose.
 | 6 | Observability (per-step tokens, latency, cost) and a two-model comparison | done | `6c4a4c2` |
 | 7 | FastAPI backend and web UI with an Approve button, README | done | `42da3b3` |
 | after | Rename rules file, scripted demo, fixes from the first real answer | done | `35d212c`, `043bc28`, `2add2e2` |
-| next | Real-model evals and the two-model comparison | **not run yet** | see [What is next](#what-is-next) |
+| after | First real-model eval (29 scenarios, no judge): 22/29, all misses in the numbers check | done | see [Honest status](#honest-status) |
+| next | LLM judge and the two-model comparison | **not run yet** | see [What is next](#what-is-next) |
 
 ## Phase by phase
 
@@ -102,7 +103,13 @@ the code on purpose.
 - Added `scripts/demo_server.py`: the real app and solver with a scripted model, to try the UI with no API key.
 - **First real-model answer** (one scenario, one run): every number matched the system's own comparison.
   Three weaknesses were fixed (a misleading utilization drop, a suggestion no tool could try, and a long
-  answer); the fixes are tested but not yet re-checked against the live model.
+  answer). The 29-scenario run that followed re-checked them on real answers: every utilization drop was
+  explained as the later finish (not idle machines), both mentions of overtime added "I can't test that here",
+  and every answer was 144 words or fewer (mean 86) with no per-operation lists.
+- **First real-model eval** (`claude-sonnet-5-5`, 29 scenarios, one run each, judge off): 22/29. Outcome,
+  tools, edits and validator checks all passed (29/29, 29/29, 17/17, 15/15); every miss was the numbers
+  check, and none was a wrong number (three values the model worked out itself, four in clarifying
+  questions). All three injection scenarios were ignored and flagged. About 764k tokens in total.
 
 ## How the test suite grew
 
@@ -132,20 +139,23 @@ About 6,300 lines of source, 5,800 lines of tests.
 
 | Verified | Not verified |
 |---|---|
-| Solver against an independent validator | **Any systematic real-model evaluation.** One real answer was checked by hand; the 29 scenarios, the LLM judge and the two-model comparison have not been run on a real model |
+| Solver against an independent validator | **The LLM judge and the two-model comparison on real models.** One real run of the 29 scenarios exists (judge off, one run each: 22/29, every miss in the numbers check) |
 | Tools, loop, approval, store, MCP server over real stdio | Claude Desktop/Code connecting to the MCP server |
 | The web API over a real socket, and the UI in a real browser | Screen readers; browsers other than one |
-| Safety, eval and API code by mutation testing | Whether the new prompt rules change a real model's answer |
+| Safety, eval and API code by mutation testing | Run-to-run variation: every real-model result so far is a single run |
+| A real model on 29 scenarios (deterministic checks) and the three prompt fixes, on those answers | Explanation quality: the judge has not scored anything, for example the answer to "just commit it" never says plainly that it cannot |
 
 ## What is next
 
 **Now (small, cheap)**
-1. Re-send "M2 is down 11:00 to 14:00" to the live model and check the three fixes took effect (about 30k tokens).
+1. Decide whether the numbers check should scan clarifying questions (it flagged all four, none a wrong
+   number), and whether tool results should include a "slack" figure so the model need not subtract.
 2. Put real prices in `.env` so costs show as dollars.
 
-**Next (real evidence; spends API credit, roughly 30k tokens per scenario)**
-3. `uv run python -m jobshop.evals run --no-judge`, then with a judge. Fix scenario wording the first real run exposes.
-4. `uv run python -m jobshop.evals compare ...` on two models with `--repeat 3`; paste the table into the README.
+**Next (real evidence; spends API credit, about 760k tokens per full run)**
+3. `uv run python -m jobshop.evals run` with `ANTHROPIC_JUDGE_MODEL` set to a *different* model, to score
+   explanation quality; then `--repeat 3` to see how much results vary.
+4. `uv run python -m jobshop.evals compare ...` on two models; paste the table into the README.
 5. Connect Claude Desktop or Claude Code to the MCP server and note what actually happens.
 
 **Open design decisions**
@@ -164,8 +174,9 @@ About 6,300 lines of source, 5,800 lines of tests.
 > a disruption, but it works on drafts and can never commit; a human approves exactly what they were shown.
 > I built the tool-use loop by hand, exposed the same tools over MCP, defended against prompt injection, and
 > wrote an eval suite whose checks read the system's state rather than the model's words. I tested the tests
-> by breaking the code on purpose, which found real bugs. What I have not yet done is run the full evals on
-> real models.
+> by breaking the code on purpose, which found real bugs. A first run on a real model passed every check on
+> what it did and every validator check, and the misses were in how it quoted numbers; I have not yet run the
+> LLM judge or compared two models.
 
 Interview preparation questions for each phase are at the end of each phase's report; the topics are:
 how approval is made unforgeable (2, 3), why free text cannot steer the agent (4), why the checks read state

@@ -90,9 +90,13 @@ An eval nobody tested is a number generator. So:
 
 ## What it does NOT show
 
-- **No real model has been run yet** (no API key in the build environment). The reference agent's
-  100% is a test of the *harness*, not a result about any model. Treat the first real run as
-  the first data point, and expect to find scenarios whose wording or expectations need adjusting.
+- **The reference agent's 100% is a test of the *harness*, not a result about any model.** The first real
+  run (`claude-sonnet-5-5`, 29 scenarios, one run each, judge off, 2026-10-08) passed every check except
+  `numbers`: 22/29 overall. All seven failures were read by hand: none was a wrong number. Three were values
+  the model worked out itself (a subtraction, a count) in explanations, and four were in clarifying
+  questions (example times, a number from its own instructions, a derived date). The `numbers` check
+  currently scans clarifying questions; whether it should is an open decision, and it has not been changed.
+  The LLM judge has not been run on a real model, so explanation quality is still unscored.
 - **Models vary run to run.** One pass is a sample. Use `--repeat` before concluding anything,
   especially for the injection category.
 - **29 scenarios on one small synthetic shop.** Enough to catch regressions and compare models
