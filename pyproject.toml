@@ -3,6 +3,8 @@ name = "jobshop-agent"
 version = "0.1.0"
 description = "LLM agent that helps planners handle job-shop disruptions by calling a CP-SAT scheduler as tools (portfolio project, synthetic data only)"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "anthropic>=1.12.0",
     "fastapi>=0.142.4",

@@ -15,6 +15,10 @@ All data is synthetic.
 > only run against scripted stand-ins, and the MCP server has only been driven by the MCP SDK's own
 > client, not by Claude Desktop/Code. See [What is and isn't verified](#what-is-and-isnt-verified).
 
+![The web UI after an outage on M1: KPI tiles with deltas, a proposal with Approve and Reject, and the live and proposed Gantt charts](docs/images/web-ui.png)
+
+*The web UI after an M1 outage. Orange bars in the lower chart moved, the shaded block is the outage, and the red diamond marks the order that becomes late. This is the scripted demo (`uv run python scripts/demo_server.py`, no API key needed): the assistant's wording is canned, while the plans, KPIs and charts are real.*
+
 ## Architecture
 
 ```mermaid
@@ -195,8 +199,12 @@ src/jobshop/evals/       scenarios, checks, judge, runner, comparison, reference
 scripts/                 demo_server.py: the web UI with a scripted stand-in for the model
 evals/                   fixture shop, 29 scenarios (YAML), results (gitignored)
 tests/                   mirrors src/; fake_llm.py is a scripted stand-in returning real SDK messages
-docs/                    MCP.md, SAFETY.md, EVALS.md, OBSERVABILITY.md
+docs/                    ROADMAP.md (what is done, what is next), MCP.md, SAFETY.md, EVALS.md, OBSERVABILITY.md
 ```
 
 Built in phases, each reviewed before the next: proposal, core, tools and agent, MCP server, safety,
 evals, observability, API and UI. `PROJECT_RULES.md` records the decisions and working rules.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
