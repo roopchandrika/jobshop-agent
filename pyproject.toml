@@ -16,6 +16,14 @@ dependencies = [
     "uvicorn>=0.54.0",
 ]
 
+[project.optional-dependencies]
+# Semantic search over the plant documents (Phase 8b). Optional: the keyword search needs none of it, and
+# CI and the tests run without it. Install with:  uv sync --extra embeddings
+embeddings = [
+    "fastembed>=0.9.0",
+    "numpy>=2.0",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",

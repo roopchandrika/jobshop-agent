@@ -27,3 +27,6 @@ evals/results/*
 
 # Private interview notes and demo script (not published)
 INTERVIEW_NOTES.md
+
+# Downloaded embedding models and cached vectors
+.cache/

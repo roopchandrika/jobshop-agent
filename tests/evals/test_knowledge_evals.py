@@ -183,3 +183,87 @@ def test_an_agent_that_never_searched_is_still_graded_for_grounding_when_the_que
     assert not any(c.name == "search_knowledge" for c in run.calls)
     assert GROUNDING_CRITERION[0] in criteria_for(run)
     assert "plant_document_passages" not in ground_truth(run)       # it was shown nothing, which is what the judge should see
+
+
+# -- comparing retrieval methods, and what happens on questions the documents do not cover ----------------------------------------
+
+
+def outcome(id_, rank, hard=False):
+    return retrieval.Outcome(q(id_, "text", "a.md", hard=hard), rank, [])
+
+
+def test_the_comparison_has_a_row_per_method_and_names_the_questions_they_disagree_on():
+    results = {
+        "bm25": [outcome("o1", 1), outcome("h1", None, hard=True), outcome("h2", 1, hard=True)],
+        "dense": [outcome("o1", 1), outcome("h1", 1, hard=True), outcome("h2", 3, hard=True)],
+    }
+    text = retrieval.render_comparison(results, 3)
+    assert "bm25" in text and "dense" in text and "1 ordinary and 2 hard" in text
+    assert "h1 (hard): found by dense" in text and "h2" not in text.split("disagree")[1]       # h2 is found by both
+
+
+def test_methods_that_agree_everywhere_list_no_disagreements():
+    same = [outcome("o1", 1), outcome("h1", 2, hard=True)]
+    assert "disagree" not in retrieval.render_comparison({"a": same, "b": list(same)}, 3)
+
+
+def test_methods_scored_on_different_questions_cannot_be_compared():
+    with pytest.raises(ValueError, match="same questions"):
+        retrieval.render_comparison({"a": [outcome("o1", 1)], "b": [outcome("o2", 1)]}, 3)
+
+
+def test_separation_is_the_lowest_answerable_score_against_the_highest_off_topic_one():
+    kb = KnowledgeBase([Chunk("a.md", "A", "seal leak seal"), Chunk("b.md", "B", "motor heat")])
+    s = retrieval.measure_separation(kb, [q("1", "seal leak", "a.md"), q("2", "motor heat", "b.md")], ["seal", "canteen menu"])
+    assert s.off_topic == 2 and s.off_topic_returned == 1            # "canteen menu" shares no word with anything
+    assert s.answerable_low is not None and s.off_topic_high is not None
+    assert s.margin == pytest.approx(s.answerable_low - s.off_topic_high, abs=1e-3)
+
+
+def test_the_lowest_answerable_score_is_taken_over_every_question_not_just_the_first():
+    kb = KnowledgeBase([Chunk("a.md", "A", "seal seal seal leak"), Chunk("b.md", "B", "motor heat pump"), Chunk("c.md", "C", "filler")])
+    strong, weak = q("1", "seal", "a.md"), q("2", "motor pump heat", "b.md")
+    best = {x.id: kb.search(x.question, 1)[0].score for x in (strong, weak)}
+    assert best["1"] != best["2"]
+    for order in ([strong, weak], [weak, strong]):
+        assert retrieval.measure_separation(kb, order, []).answerable_low == min(best.values())
+
+
+def test_with_nothing_returned_for_off_topic_questions_there_is_no_off_topic_score_or_margin():
+    kb = KnowledgeBase([Chunk("a.md", "A", "seal leak")])
+    s = retrieval.measure_separation(kb, [q("1", "seal leak", "a.md")], ["canteen menu"])
+    assert (s.off_topic_returned, s.off_topic_high, s.margin) == (0, None, None)
+    assert "0 of 1" in retrieval.render_separation({"bm25": s}) and "-" in retrieval.render_separation({"bm25": s})
+
+
+def test_a_negative_margin_means_a_score_cannot_tell_answers_from_non_answers():
+    s = retrieval.Separation(answerable_low=0.53, off_topic_high=0.57, off_topic_returned=6, off_topic=6)
+    assert s.margin == pytest.approx(-0.04) and "-0.040" in retrieval.render_separation({"dense": s})
+
+
+def test_the_shipped_questions_include_off_topic_ones_and_the_file_still_rejects_unknown_keys(tmp_path):
+    assert len(retrieval.load_unanswerable(EVALS / "retrieval.yaml")) >= 5
+    (tmp_path / "x.yaml").write_text("questions: []\nsurprise: 1")
+    with pytest.raises(ValueError, match="top level"):
+        retrieval.load_questions(tmp_path / "x.yaml")
+    (tmp_path / "y.yaml").write_text("questions: []")
+    assert retrieval.load_unanswerable(tmp_path / "y.yaml") == []
+
+
+def test_keyword_search_is_the_default_method_and_vector_search_without_the_package_is_a_clear_error(capsys, monkeypatch):
+    import sys
+    assert cli.main(["--evals-dir", str(EVALS), "retrieval"]) == 0
+    out = capsys.readouterr().out
+    row = next(line for line in out.splitlines() if line.strip().startswith("bm25") and " of " in line)
+    assert "Questions the documents do not cover" in out and "1 of 6" in row          # keyword search: one stray match
+    monkeypatch.setitem(sys.modules, "fastembed", None)
+    assert cli.main(["--evals-dir", str(EVALS), "retrieval", "--method", "dense"]) == 2
+    assert "uv sync --extra embeddings" in capsys.readouterr().err
+
+
+def test_asking_for_all_methods_builds_every_one_and_reports_the_first_that_cannot_be_built(capsys, monkeypatch):
+    import sys
+    monkeypatch.setitem(sys.modules, "fastembed", None)
+    assert cli.main(["--evals-dir", str(EVALS), "retrieval", "--method", "all"]) == 2
+    err = capsys.readouterr().err
+    assert "uv sync --extra embeddings" in err and "unknown retriever" not in err

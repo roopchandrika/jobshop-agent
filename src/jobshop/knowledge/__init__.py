@@ -6,8 +6,12 @@ indexes them, and answers "which passages are about this question?". It never im
 retrieval is plain, testable code, and a document is data, never an instruction.
 """
 
-from jobshop.knowledge.base import Chunk, Hit, KnowledgeBase
+from jobshop.knowledge.base import Chunk, Hit, KnowledgeBase, Retriever
 from jobshop.knowledge.chunking import chunk_markdown
-from jobshop.knowledge.loading import load_knowledge
+from jobshop.knowledge.loading import RETRIEVERS, build_retriever, load_knowledge
+from jobshop.knowledge.semantic import DenseKnowledgeBase, FastEmbedder, HybridKnowledgeBase
 
-__all__ = ["Chunk", "Hit", "KnowledgeBase", "chunk_markdown", "load_knowledge"]
+__all__ = [
+    "Chunk", "DenseKnowledgeBase", "FastEmbedder", "Hit", "HybridKnowledgeBase", "KnowledgeBase", "RETRIEVERS",
+    "Retriever", "build_retriever", "chunk_markdown", "load_knowledge",
+]

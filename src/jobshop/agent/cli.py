@@ -24,7 +24,7 @@ from jobshop.agent.trace import Tracer
 from jobshop.core.generator import GeneratorSettings, generate_instance
 from jobshop.core.kpis import compute_kpis
 from jobshop.core.solver import SolverConfig, solve
-from jobshop.knowledge import KnowledgeBase, load_knowledge
+from jobshop.knowledge import Retriever, load_knowledge
 from jobshop.tools import views
 from jobshop.tools.approval import ApprovalAuthority
 from jobshop.tools.errors import ToolError
@@ -73,7 +73,7 @@ def agent_config_from_env(env: Mapping[str, str]) -> AgentConfig:
 
 def build_context(
     settings: GeneratorSettings, solver_config: SolverConfig, now: datetime | None = None,
-    knowledge: KnowledgeBase | None = None,
+    knowledge: Retriever | None = None,
 ) -> ToolContext:
     """Generate a shop, solve its baseline plan once, and make that the committed schedule."""
     instance = generate_instance(settings)

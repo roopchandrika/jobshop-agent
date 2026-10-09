@@ -149,10 +149,13 @@ An eval nobody tested is a number generator. So:
 
 ## Retrieval evaluation (no model, no cost)
 
-`python -m jobshop.evals retrieval` scores the plant-document search on `evals/retrieval.yaml`: 22 ordinary
-questions and 6 *hard* ones worded unlike the documents. A question is a hit if one of the documents that answer
+`python -m jobshop.evals retrieval` scores the plant-document search on `evals/retrieval.yaml`: 26 ordinary
+questions (4 of them exact tokens such as `extension 4100`), 6 *hard* ones worded unlike the documents, and 6 off-topic
+ones the documents cannot answer. `--method bm25|dense|hybrid|all` picks the search method (`all` prints them side by
+side and lists the questions they disagree on). A question is a hit if one of the documents that answer
 it is in the top `k` results; the report gives hit@1, hit@k and mean reciprocal rank, lists every miss with what
-came back instead, and `--min-hit` turns it into a gate. Current results and what they do and do not show are in
+came back instead, and `--min-hit` turns it into a gate. For the off-topic questions it reports whether a method
+returns passages anyway and whether its scores separate them from real answers (a diagnostic, not pass/fail). Current results and what they do and do not show are in
 [DESIGN.md](DESIGN.md#how-well-does-retrieval-work). The `kn-*` scenarios then test the agent on top of it: it
 must search, cite the source, quote figures as written, say so when nothing is found, and not fold a document's
 figures into the schedule. Their judge criterion (*grounding*) is given the passages the agent was actually shown.

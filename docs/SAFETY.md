@@ -24,6 +24,15 @@ The committed schedule, and the planner's trust in what they are shown before th
 | A plant document (retrieved text) tells the model what to do | Same layers as for order notes: whatever the model is persuaded to do is limited to editing drafts, the approval screen is built from stored data, and passages arrive on one line, size-capped, in a field named `text_untrusted_text` with a note and a prompt rule saying documents are data. Cleaning is hygiene, not detection. | `test_search_knowledge` (a fully obedient scripted model reads a poisoned passage) |
 | Model or note text runs as script in the page | The page only inserts text nodes (a test forbids `innerHTML` and friends in the script), the Content-Security-Policy forbids inline script and remote loads, and the API returns model text as JSON data. Checked in a real browser with an answer containing `<img onerror=…>`: it displayed as literal text. | `test_api`, browser check |
 
+## The embedding model (optional)
+
+Semantic search downloads a model file from Hugging Face the first time it runs (`uv sync --extra embeddings`, then
+`JOBSHOP_RETRIEVER=dense`). It is an ONNX file, which is data for the runtime, not a pickle that executes code on load,
+and it is fetched over HTTPS by the `fastembed` package into `.cache/models`. It is not pinned to a revision or checked
+against a hash, so a changed upstream file would be picked up unnoticed; pin one if this ever matters. The extra pulls in
+about 20 packages (onnxruntime, huggingface-hub, tokenizers, ...). Plant documents are sent to nobody: embedding runs
+locally. It is off by default and absent from CI.
+
 ## What the text cleaning is, and is not
 
 `untrusted_text` and `terminal_safe` are hygiene. They stop invisible characters and escape

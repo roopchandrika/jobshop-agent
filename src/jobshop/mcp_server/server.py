@@ -34,7 +34,7 @@ from mcp.server.stdio import stdio_server
 
 from jobshop.agent.prompts import server_instructions
 from jobshop.core.solver import SolverConfig
-from jobshop.knowledge import KnowledgeBase, load_knowledge
+from jobshop.knowledge import Retriever, load_knowledge
 from jobshop.tools.approval import ApprovalAuthority
 from jobshop.tools.errors import ToolError
 from jobshop.tools.functions import ToolContext
@@ -99,7 +99,7 @@ class ToolService:
 
 def build_server(
     store: Store, solver_config: SolverConfig, registry: ToolRegistry | None = None,
-    knowledge: KnowledgeBase | None = None,
+    knowledge: Retriever | None = None,
 ) -> Server:
     if registry is None:
         # This process can never commit: it holds an authority whose secret nobody else has, and

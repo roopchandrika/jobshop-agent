@@ -10,7 +10,7 @@ and approves it.
 This is a portfolio project, built to learn AI engineering. The agent's tool-use loop is written by hand
 on the Anthropic SDK (no agent framework), and all data is synthetic.
 
-> **Status.** Built and tested: 859 automated tests, CI on every push. One real-model evaluation exists
+> **Status.** Built and tested: 898 automated tests, CI on every push. One real-model evaluation exists
 > (29 scenarios, no judge: 22/29, every miss in one check that has since been narrowed). A judged, repeated
 > two-model comparison was started and stopped early to save API credit, so **no comparison has been
 > completed**. See [What is and isn't verified](#what-is-and-isnt-verified).
@@ -146,7 +146,7 @@ uv run pytest                    # about two minutes; 2 tests are skipped (they 
 | Evals on a model, no judge | `uv run python -m jobshop.evals run --no-judge` |
 | Evals with the LLM judge | `uv run python -m jobshop.evals run` (needs `ANTHROPIC_JUDGE_MODEL`, a different model) |
 | Compare two models | `uv run python -m jobshop.evals compare --model A --model B --judge-model C` |
-| Score the document search (no model, free) | `uv run python -m jobshop.evals retrieval` |
+| Score the document search (no model, free) | `uv run python -m jobshop.evals retrieval --method all` (`dense` and `hybrid` need `uv sync --extra embeddings`) |
 | Record a real run once, replay it free | `... evals run --record DIR`, then `... evals run --replay DIR` |
 | Read a trace | `uv run python -m jobshop.agent.trace_report logs/traces/<file>.jsonl` |
 
@@ -165,8 +165,9 @@ it opens instantly. Without an API key it still shows the plan and chat is disab
   plan version and a fingerprint of its schedule *and edits*; order notes are untrusted data; the web Approve
   endpoint is CSRF-, Origin- and CSP-guarded and loopback-only.
 - **Plant documents (retrieval):** the agent can look up procedures, incident reports and policies in a small
-  synthetic knowledge base (keyword search, no extra dependencies); retrieval is scored on its own, and a document is
-  treated as untrusted data like an order note.
+  synthetic knowledge base, by keyword (default) or by meaning with a local embedding model (optional extra). Retrieval
+  is scored on its own: embeddings find 6 of 6 hard paraphrases against 3 of 6 for keywords. A document is untrusted
+  data like an order note.
 - **Evals:** 44 scenarios on two shops; checks read the system's state, not the model's wording; an LLM judge
   that must be a different model; a scripted reference agent; mutation testing of the guards and checks.
 - **Observability:** versioned JSONL traces with per-step tokens, cache use, latency and cost; a two-model
@@ -180,10 +181,10 @@ Reasons, trade-offs and a glossary: [docs/DESIGN.md](docs/DESIGN.md). Threat mod
 | Verified | Not verified |
 |---|---|
 | The solver against an independent validator and recomputation | The LLM judge on a real model |
-| Tools, loop, approval, store and the MCP server over real stdio, by 859 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
+| Tools, loop, approval, store and the MCP server over real stdio, by 898 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
 | The web API (CSRF, Origin, Host, CSP, approval fingerprint) over a real socket | Claude Desktop/Code connecting to the MCP server |
 | The UI in a real browser: chat, proposal, Approve, charts, dark mode, phone width | The Approve flow with a real model; screen readers; browsers other than one |
-| A real model on 29 scenarios, deterministic checks only (above) | The changes since then (goal option, caching, plant documents, new scenarios) over the full suite on a real model; whether a real model searches, cites and stays grounded |
+| A real model on 29 scenarios, deterministic checks only (above) | The changes since then (goal option, caching, plant documents, new scenarios) over the full suite on a real model; whether a real model searches, cites and stays grounded, including declining to answer from a nearest-but-irrelevant passage |
 | Safety, eval and API code by mutation testing: guards broken on purpose, a test failed for each | A security audit: this is a local single-user app, not hardened for a network |
 
 **Limits:** one planner and one shop; state is in memory (web) or a JSON file (MCP), with no accounts or
@@ -199,7 +200,7 @@ src/jobshop/agent/       hand-written loop, prompts, conversation, traces, chat 
 src/jobshop/mcp_server/  stdio MCP server and the human `admin` command
 src/jobshop/api/         FastAPI app and the web UI (static/)
 src/jobshop/evals/       scenarios, checks, judge, runner, comparison, record/replay, retrieval scoring, reference agent
-src/jobshop/knowledge/   chunking and keyword (BM25) search over the plant documents   (no LLM)
+src/jobshop/knowledge/   chunking, keyword (BM25) and embedding search over the plant documents   (no LLM)
 scripts/                 demo_server.py: the web UI with a scripted stand-in for the model
 evals/                   two fixture shops, 44 scenarios (YAML), retrieval questions, results (gitignored)
 knowledge/               synthetic plant documents the agent can search (markdown)

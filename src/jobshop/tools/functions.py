@@ -26,7 +26,7 @@ from jobshop.core.models import Instance, Schedule, SolveStatus
 from jobshop.core.reschedule import plan_reschedule
 from jobshop.core.solver import SolverConfig, solve
 from jobshop.core.validator import validate_schedule
-from jobshop.knowledge import KnowledgeBase
+from jobshop.knowledge import Retriever
 from jobshop.tools import views
 from jobshop.tools.approval import ApprovalAuthority, ApprovalError, proposal_digest
 from jobshop.tools.errors import ToolError
@@ -68,7 +68,7 @@ class ToolContext:
     solver_config: SolverConfig
     # Plant documents the agent can look things up in. None means there are none, and then the
     # search_knowledge tool is not offered at all (see Tool.needs in the registry).
-    knowledge: KnowledgeBase | None = None
+    knowledge: Retriever | None = None
 
 
 # --------------------------------------------------------------------------------------------

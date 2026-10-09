@@ -23,6 +23,12 @@ questions:
   - {id: r-21, question: "What must happen before anyone repairs inside a machine?", sources: [safety-lockout.md]}
   - {id: r-22, question: "Can we schedule work on a machine that is locked out?", sources: [safety-lockout.md]}
 
+  # exact tokens: a number, a unit or an identifier that a vector model may blur but a keyword index matches
+  - {id: r-23, question: "extension 4100", sources: [sop-machine-breakdown.md]}
+  - {id: r-24, question: "4.5 mm/s", sources: [machine-m2-history.md]}
+  - {id: r-25, question: "500 per day Alpha Drives", sources: [customer-contracts.md]}
+  - {id: r-26, question: "first-article inspection 15 minutes", sources: [quality-inspection-rules.md]}
+
   # -- hard: same need, different words. A keyword index is expected to miss many of these -------------------
   - {id: h-01, hard: true, question: "What do we do if a machine suddenly dies?", sources: [sop-machine-breakdown.md]}
   - {id: h-02, hard: true, question: "The motor on the second mill is seizing up again, has that happened before?", sources: [machine-m2-history.md]}
@@ -30,3 +36,13 @@ questions:
   - {id: h-04, hard: true, question: "Do we have to recheck parts after they come off the grinder?", sources: [quality-inspection-rules.md]}
   - {id: h-05, hard: true, question: "Is working extra hours at night okay?", sources: [shift-and-overtime-policy.md]}
   - {id: h-06, hard: true, question: "Someone wants their job done faster than normal, what is the rule?", sources: [sop-rush-orders.md]}
+
+# Off-topic: nothing in the documents answers these. Used to see whether a method returns passages anyway, and
+# whether its scores tell those apart from real answers (a diagnostic, not a pass/fail target).
+unanswerable:
+  - "What is on the canteen menu today?"
+  - "Who won the football match last night?"
+  - "How do I reset my email password?"
+  - "What is the capital of France?"
+  - "Can I book a holiday next week?"
+  - "Where is the car park?"

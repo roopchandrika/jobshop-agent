@@ -17,7 +17,9 @@ from jobshop.agent.cli import ConfigError, agent_config_from_env
 from jobshop.agent.loop import AgentConfig
 from jobshop.agent.pricing import Prices, parse_prices
 from jobshop.core.solver import SolverConfig
-from jobshop.knowledge import KnowledgeBase
+from jobshop.knowledge import RETRIEVERS, KnowledgeBase, build_retriever
+from jobshop.knowledge.loading import CACHE_VAR, MODEL_VAR, RETRIEVER_VAR
+from jobshop.knowledge.semantic import DEFAULT_MODEL
 from jobshop.evals.compare import ModelSpec, render_comparison, run_comparison, write_comparison
 from jobshop.evals.oracle import OracleClient
 from jobshop.evals import replay, retrieval
@@ -65,7 +67,12 @@ def _knowledge(args: argparse.Namespace, scenarios: list[Scenario]):
     """The plant documents, if the folder exists. Scenarios that need them make a missing folder an error."""
     folder = args.knowledge_dir if args.knowledge_dir is not None else args.evals_dir.parent / "knowledge"
     if folder.is_dir():
-        return KnowledgeBase.from_directory(folder)
+        kind = (args.retriever or os.environ.get(RETRIEVER_VAR, "bm25")).strip().lower()
+        try:
+            return build_retriever(kind, folder, cache_dir=Path(os.environ.get(CACHE_VAR, ".cache")),
+                                   model=os.environ.get(MODEL_VAR, DEFAULT_MODEL))
+        except ValueError as e:
+            raise ConfigError(str(e)) from None
     needing = sorted(s.id for s in scenarios if s.needs_knowledge)
     if needing:
         raise ConfigError(f"{', '.join(needing)} need the plant documents, but {folder} is not a folder (see --knowledge-dir)")
@@ -227,20 +234,29 @@ def _retrieval(args: argparse.Namespace) -> int:
     """Score the document search on labelled questions: no model, no cost."""
     folder = args.knowledge_dir if args.knowledge_dir is not None else args.evals_dir.parent / "knowledge"
     questions_file = args.questions if args.questions is not None else args.evals_dir / "retrieval.yaml"
+    methods = list(RETRIEVERS) if args.method == "all" else [args.method]
     try:
-        kb = KnowledgeBase.from_directory(folder)
-        outcomes = retrieval.evaluate(kb, retrieval.load_questions(questions_file), args.k)
+        questions = retrieval.load_questions(questions_file)
+        off_topic = retrieval.load_unanswerable(questions_file)
+        results, separation = {}, {}
+        for method in methods:
+            kb = build_retriever(method, folder, cache_dir=Path(os.environ.get(CACHE_VAR, ".cache")),
+                                 model=os.environ.get(MODEL_VAR, DEFAULT_MODEL))
+            results[method] = retrieval.evaluate(kb, questions, args.k)
+            separation[method] = retrieval.measure_separation(kb, questions, off_topic)
     except (ValueError, OSError) as e:
         print(f"Configuration error: {e}", file=sys.stderr)
         return 2
     print(f"{len(kb.sources)} documents, {len(kb.chunks)} passages; questions from {questions_file}")
     print()
-    print(retrieval.render(outcomes, args.k))
-    ordinary = retrieval.score([o for o in outcomes if not o.question.hard], args.k)
-    if args.min_hit is not None and ordinary.hit_at_k < args.min_hit:
-        print(f"FAIL: ordinary-question hit@{args.k} {ordinary.hit_at_k:.2f} is below {args.min_hit:.2f}", file=sys.stderr)
-        return 1
-    return 0
+    print(retrieval.render_comparison(results, args.k) if len(results) > 1 else retrieval.render(results[methods[0]], args.k))
+    if off_topic:
+        print(retrieval.render_separation(separation))
+    failed = [m for m, outcomes in results.items()
+              if args.min_hit is not None and retrieval.score([o for o in outcomes if not o.question.hard], args.k).hit_at_k < args.min_hit]
+    for m in failed:
+        print(f"FAIL: {m}: ordinary-question hit@{args.k} is below {args.min_hit:.2f}", file=sys.stderr)
+    return 1 if failed else 0
 
 
 def _build(args: argparse.Namespace) -> int:
@@ -260,6 +276,7 @@ def _common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--solve-seconds", type=float, default=5.0, help="solver time limit per reschedule")
     p.add_argument("--out", type=Path, default=Path("evals/results"))
     p.add_argument("--knowledge-dir", type=Path, help="plant documents for the search_knowledge tool (default: <evals-dir>/../knowledge)")
+    p.add_argument("--retriever", choices=RETRIEVERS, help="how the documents are searched (default: $JOBSHOP_RETRIEVER, else bm25)")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -293,6 +310,9 @@ def main(argv: list[str] | None = None) -> int:
 
     ret = sub.add_parser("retrieval", help="score the plant-document search on labelled questions (no model, no cost)")
     ret.add_argument("--k", type=int, default=3, help="how many passages count as 'found' (default 3)")
+    ret.add_argument("--method", choices=[*RETRIEVERS, "all"], default="bm25",
+                     help="keyword (default), dense (embeddings), hybrid, or all three side by side; dense and hybrid need "
+                          "the optional extra: uv sync --extra embeddings")
     ret.add_argument("--questions", type=Path, help="question file (default: <evals-dir>/retrieval.yaml)")
     ret.add_argument("--knowledge-dir", type=Path, help="plant documents (default: <evals-dir>/../knowledge)")
     ret.add_argument("--min-hit", type=float, help="exit 1 if the share of ordinary questions found in the top k is below this")

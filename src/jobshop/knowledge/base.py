@@ -18,6 +18,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 from jobshop.knowledge.chunking import Chunk, chunk_markdown
 
@@ -52,7 +53,20 @@ class Hit:
     score: float
 
 
+class Retriever(Protocol):
+    """What the agent's search tool needs from any retrieval method: keyword, vector or hybrid."""
+
+    chunks: list[Chunk]
+
+    @property
+    def sources(self) -> list[str]: ...
+
+    def search(self, query: str, k: int = 3) -> list[Hit]: ...
+
+
 class KnowledgeBase:
+    """The keyword (BM25) retriever."""
+
     def __init__(self, chunks: list[Chunk]) -> None:
         if not chunks:
             raise ValueError("a knowledge base needs at least one passage")

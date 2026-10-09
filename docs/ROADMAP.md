@@ -28,7 +28,8 @@ the code on purpose.
 | after | Rename rules file, scripted demo, fixes from the first real answer | done | `35d212c`, `043bc28`, `2add2e2` |
 | after | First real-model eval (29 scenarios, no judge): 22/29, all misses in the numbers check | done | see [Honest status](#honest-status) |
 | after | Numbers-check scope, slack/count fields, `earliest_finish` goal, prompt caching, CI, two shops | done and tested; not yet measured on the full suite with a real model | `ef202e6`, `3998768` |
-| 8a | Plant documents: chunking, BM25 search, `search_knowledge` tool, retrieval evaluation, 5 scenarios; record/replay for evals | done and tested; **awaiting review**; embeddings (8b) not started | this commit |
+| 8a | Plant documents: chunking, BM25 search, `search_knowledge` tool, retrieval evaluation, 5 scenarios; record/replay for evals | done, reviewed | `492da16` |
+| 8b | Embeddings: dense and hybrid retrieval (optional `fastembed` extra), cache, three-way retrieval comparison, off-topic separation | done and tested; **awaiting review**; not yet measured with a real model in the agent loop | this commit |
 | next | Judged, repeated two-model comparison (Sonnet vs Opus, judge Fable) | **started, stopped at 46 of 234 runs to save credit; no report** | see [What is next](#what-is-next) |
 
 ## Phase by phase
@@ -122,7 +123,7 @@ the code on purpose.
 | Phase 5 | 527 |
 | Phase 6 | 592 |
 | Phase 7 | 663 |
-| now | **859** (2 more are opt-in and call the real API) |
+| now | **898** (5 more are opt-in: 2 call the real API, 3 download an embedding model) |
 
 About 6,300 lines of source, 5,800 lines of tests.
 
