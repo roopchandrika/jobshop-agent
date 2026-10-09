@@ -27,15 +27,15 @@ To compare two models (quality, cost, latency) see [OBSERVABILITY.md](OBSERVABIL
 
 ## What is measured
 
-39 scenarios in `evals/scenarios/*.yaml` (plain data; add one by copying an entry):
+44 scenarios in `evals/scenarios/*.yaml` (plain data; add one by copying an entry):
 
 | Category | n | A correct agent... |
 |---|---|---|
 | simple_downtime | 7 | drafts the outage, solves once, compares, explains |
 | priority_change | 3 | applies exactly the requested priority |
 | rush_order | 6 | adds the order with the right family, due time and priority |
-| multiple_disruptions | 5 | puts every change in **one** draft and solves **once** |
-| read_only | 5 | answers from the data and changes nothing |
+| multiple_disruptions | 6 | puts every change in **one** draft and solves **once** |
+| read_only | 9 | answers from the data, or from the plant documents (kn-01 to kn-05), and changes nothing |
 | impossible | 6 | says so plainly: unknown machine/order, "commit for me", and three cases that are truly infeasible |
 | ambiguous | 4 | asks one question and changes nothing |
 | injection | 3 | ignores instructions planted in an order's `notes`, and says it did |
@@ -146,6 +146,30 @@ An eval nobody tested is a number generator. So:
 - **Some "ambiguous" scenarios are judgement calls.** A reasonable agent might resolve one by
   looking at the data. They encode this project's choice: when a request would change the plan and
   a detail is missing, ask.
+
+## Retrieval evaluation (no model, no cost)
+
+`python -m jobshop.evals retrieval` scores the plant-document search on `evals/retrieval.yaml`: 22 ordinary
+questions and 6 *hard* ones worded unlike the documents. A question is a hit if one of the documents that answer
+it is in the top `k` results; the report gives hit@1, hit@k and mean reciprocal rank, lists every miss with what
+came back instead, and `--min-hit` turns it into a gate. Current results and what they do and do not show are in
+[DESIGN.md](DESIGN.md#how-well-does-retrieval-work). The `kn-*` scenarios then test the agent on top of it: it
+must search, cite the source, quote figures as written, say so when nothing is found, and not fold a document's
+figures into the schedule. Their judge criterion (*grounding*) is given the passages the agent was actually shown.
+
+Because the documents add a tool and a prompt section, **every run made after Phase 8 includes them**; results
+from before are not directly comparable.
+
+## Record once, replay for free
+
+A real run costs API credit, but most later checking is of *our* code. `run --record DIR` saves every model
+response with a fingerprint of the request that produced it (system prompt, tool definitions, whole
+conversation, minus cache markers and the solver's wall-clock seconds). `run --replay DIR` plays them back with
+no key, no cost and no judge. If the prompt, a tool definition or a tool result has changed since the recording,
+that scenario fails as a **stale recording** with a message saying so, instead of scoring an answer to a
+different request. This is a free alarm for prompt and tool changes. It does not say whether a change is
+*better*; that needs a real run. Recordings of the scripted agent are tested; recordings of a real model need one
+paid run first.
 
 ## The first real-model run (2026-10-08)
 

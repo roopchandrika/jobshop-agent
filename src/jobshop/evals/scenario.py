@@ -139,6 +139,12 @@ class Scenario(_Data):
     def _now(cls, value: str | None) -> str | None:
         return None if value is None else _plant_time(value)
 
+    @property
+    def needs_knowledge(self) -> bool:
+        """True if a correct agent has to look something up in the plant documents."""
+        e = self.expect
+        return "search_knowledge" in e.tools_required or any("search_knowledge" in g for g in e.tools_any)
+
 
 def load_scenarios(directory: Path) -> list[Scenario]:
     """Every ``*.yaml`` under ``directory``; each file is ``scenarios: [...]``."""

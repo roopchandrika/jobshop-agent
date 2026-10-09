@@ -29,7 +29,10 @@ servers already there), then quit and reopen Claude Desktop completely:
     "jobshop": {
       "command": "C:\\path\\to\\jobshop-agent\\.venv\\Scripts\\python.exe",
       "args": ["-m", "jobshop.mcp_server"],
-      "env": { "JOBSHOP_SOLVE_SECONDS": "25" }
+      "env": {
+        "JOBSHOP_SOLVE_SECONDS": "25",
+        "JOBSHOP_KNOWLEDGE_DIR": "C:\\path\\to\\jobshop-agent\\knowledge"
+      }
     }
   }
 }
@@ -41,7 +44,7 @@ its PATH. Replace `C:\path\to\jobshop-agent` with the folder you cloned the repo
 ### Claude Code
 
 ```bash
-claude mcp add jobshop -e JOBSHOP_SOLVE_SECONDS=25 -- C:\path\to\jobshop-agent\.venv\Scripts\python.exe -m jobshop.mcp_server
+claude mcp add jobshop -e JOBSHOP_SOLVE_SECONDS=25 -e JOBSHOP_KNOWLEDGE_DIR=C:\path\to\jobshop-agent\knowledge -- C:\path\to\jobshop-agent\.venv\Scripts\python.exe -m jobshop.mcp_server
 ```
 
 Check `claude mcp add --help` if the flags differ in your version; the command is the same
@@ -68,6 +71,12 @@ edited after the request. `clock` makes existing drafts and requests stale on pu
 
 ## Notes
 
+- **Plant documents.** If `JOBSHOP_KNOWLEDGE_DIR` names a folder of `.md` files (the repo's `knowledge/`), the
+  server also offers `search_knowledge` and adds a short section about it to its instructions. It is opt-in here
+  because the server's working folder is chosen by the client, so a relative default would silently find nothing.
+  Leave the variable out and the tool simply does not exist.
+- **Two goals.** `reschedule` takes `goal`: `fewest_moves` (default) or `earliest_finish`. The approval review
+  screen says which one the plan was solved for.
 - **Solve time.** `reschedule` runs the solver for up to `JOBSHOP_SOLVE_SECONDS` (default 30).
   Keep it below your client's tool-call timeout; 25 is a cautious choice. I have not measured
   Claude Desktop's timeout.
@@ -79,7 +88,8 @@ edited after the request. `clock` makes existing drafts and requests stale on pu
 
 - Verified in tests: the real server process over real stdio with the MCP SDK's own client
   (tools listed, errors reported as error results, state shared with the approval command, a
-  model cannot commit).
+  model cannot commit). A manual session with the SDK client also exercised document search, both
+  goals, a rejected goal value, and `request_commit` leaving the plan uncommitted.
 - Not verified: behaviour inside Claude Desktop or Claude Code themselves (tool-call timeouts,
   how they present instructions or long JSON results, and whether the model follows the
   workflow). MCP *elicitation* (the server asking you to confirm inside the client) exists in the

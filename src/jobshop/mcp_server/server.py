@@ -34,6 +34,7 @@ from mcp.server.stdio import stdio_server
 
 from jobshop.agent.prompts import server_instructions
 from jobshop.core.solver import SolverConfig
+from jobshop.knowledge import KnowledgeBase, load_knowledge
 from jobshop.tools.approval import ApprovalAuthority
 from jobshop.tools.errors import ToolError
 from jobshop.tools.functions import ToolContext
@@ -96,11 +97,14 @@ class ToolService:
             return _result({"error": f"internal error in {name} (see the server log)"}, is_error=True)
 
 
-def build_server(store: Store, solver_config: SolverConfig, registry: ToolRegistry | None = None) -> Server:
+def build_server(
+    store: Store, solver_config: SolverConfig, registry: ToolRegistry | None = None,
+    knowledge: KnowledgeBase | None = None,
+) -> Server:
     if registry is None:
         # This process can never commit: it holds an authority whose secret nobody else has, and
         # commit_schedule is not offered on the "mcp" surface in the first place.
-        ctx = ToolContext(store=store, authority=ApprovalAuthority(), solver_config=solver_config)
+        ctx = ToolContext(store=store, authority=ApprovalAuthority(), solver_config=solver_config, knowledge=knowledge)
         registry = ToolRegistry(ctx, surface="mcp")
     service = ToolService(store, registry)
 
@@ -117,7 +121,7 @@ def build_server(store: Store, solver_config: SolverConfig, registry: ToolRegist
     return Server(
         "jobshop-scheduler",
         version=version,
-        instructions=server_instructions(),
+        instructions=server_instructions(knowledge=registry.ctx.knowledge is not None),
         on_list_tools=on_list_tools,
         on_call_tool=on_call_tool,
     )
@@ -135,7 +139,12 @@ def main() -> int:
         )
         return 2
 
-    server = build_server(Store.open(path), solver_config_from_env(os.environ))
+    try:
+        knowledge = load_knowledge(os.environ, default=None)   # only if JOBSHOP_KNOWLEDGE_DIR names a folder
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    server = build_server(Store.open(path), solver_config_from_env(os.environ), knowledge=knowledge)
     log.info("serving %s over stdio", path)
 
     async def serve() -> None:

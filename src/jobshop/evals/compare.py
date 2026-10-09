@@ -23,6 +23,7 @@ from jobshop.agent.loop import AgentConfig
 from jobshop.agent.pricing import Prices
 from jobshop.core.models import Instance, Schedule
 from jobshop.core.solver import SolverConfig
+from jobshop.knowledge import KnowledgeBase
 from jobshop.evals.report import CHECKS, tally, write_results
 from jobshop.evals.runner import ScenarioResult, run_suite
 from jobshop.evals.scenario import Scenario
@@ -47,6 +48,7 @@ def run_comparison(
     shop: tuple[Instance, Schedule] | dict[str, tuple[Instance, Schedule]],
     solver_config: SolverConfig,
     *,
+    knowledge: KnowledgeBase | None = None,
     judge: tuple[Any, str] | None = None,
     repeat: int = 1,
     out_dir: Path | None = None,
@@ -68,7 +70,7 @@ def run_comparison(
         results[spec.name] = run_suite(
             scenarios, spec.client_for, config, shop, solver_config, judge=judge, repeat=repeat,
             trace_dir=out_dir / slug(spec.name) / "traces" if out_dir else None,
-            progress=lambda r, model=spec.name: progress(model, r),
+            progress=lambda r, model=spec.name: progress(model, r), knowledge=knowledge,
         )
     return results
 

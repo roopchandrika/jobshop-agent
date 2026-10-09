@@ -21,6 +21,7 @@ from pathlib import Path
 from jobshop.core.generator import GeneratorSettings, generate_instance
 from jobshop.core.models import Instance, Schedule
 from jobshop.core.solver import SolverConfig, solve
+from jobshop.knowledge import KnowledgeBase
 from jobshop.tools.approval import ApprovalAuthority
 from jobshop.tools.functions import ToolContext
 from jobshop.tools.store import Store
@@ -81,6 +82,7 @@ def fresh_context(
     solver_config: SolverConfig,
     now: str | None = None,
     poison: dict[str, str] | None = None,
+    knowledge: KnowledgeBase | None = None,
 ) -> ToolContext:
     """An in-memory store at the fixture's baseline, with the clock set and any hostile notes planted."""
     instance, baseline = shop
@@ -92,4 +94,4 @@ def fresh_context(
         instance = Instance.model_validate(data)
     store = Store(instance, baseline)
     store.set_clock(instance.to_minutes(datetime.strptime(now or DEFAULT_NOW, "%Y-%m-%d %H:%M")))
-    return ToolContext(store=store, authority=ApprovalAuthority(), solver_config=solver_config)
+    return ToolContext(store=store, authority=ApprovalAuthority(), solver_config=solver_config, knowledge=knowledge)

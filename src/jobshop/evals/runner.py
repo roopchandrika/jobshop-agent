@@ -24,6 +24,7 @@ from jobshop.evals.judge import JudgeResult, judge_run
 from jobshop.evals.record import CheckResult, Run
 from jobshop.evals.scenario import Scenario
 from jobshop.evals.shop import fresh_context
+from jobshop.knowledge import KnowledgeBase
 from jobshop.tools.registry import ToolRegistry
 
 
@@ -62,8 +63,9 @@ def execute(
     solver_config: SolverConfig,
     attempt: int = 1,
     trace_path: Path | None = None,
+    knowledge: KnowledgeBase | None = None,
 ) -> Run:
-    ctx = fresh_context(shop, solver_config, scenario.now, scenario.poison)
+    ctx = fresh_context(shop, solver_config, scenario.now, scenario.poison, knowledge)
     version_at_start = ctx.store.committed.version  # read BEFORE the run: that is the point of comparing
     started = time.perf_counter()
     messages: list[dict[str, Any]] = []
@@ -116,18 +118,23 @@ def run_suite(
     repeat: int = 1,
     trace_dir: Path | None = None,
     progress: Callable[[ScenarioResult], None] = lambda r: None,
+    knowledge: KnowledgeBase | None = None,
 ) -> list[ScenarioResult]:
     """Run every scenario ``repeat`` times. ``shop`` is one fixture (the "default" shop) or a dict by name."""
     shops = shop if isinstance(shop, dict) else {"default": shop}
     missing = sorted({s.shop for s in scenarios} - set(shops))
     if missing:  # a setup mistake, found before any (paid) run starts
         raise ValueError(f"scenarios use shop(s) that were not loaded: {missing}")
+    if knowledge is None:
+        needing = sorted(s.id for s in scenarios if s.needs_knowledge)
+        if needing:
+            raise ValueError(f"scenarios need the plant documents but none were loaded: {needing}")
     results: list[ScenarioResult] = []
     for scenario in scenarios:
         for attempt in range(1, repeat + 1):
             trace_path = trace_dir / f"{scenario.id}-{attempt}.jsonl" if trace_dir else None
             try:
-                run = execute(scenario, client_for(scenario), config, shops[scenario.shop], solver_config, attempt, trace_path)
+                run = execute(scenario, client_for(scenario), config, shops[scenario.shop], solver_config, attempt, trace_path, knowledge)
                 result = score(run, judge)
             except Exception as e:  # a bug must cost one scenario, not the whole (paid) run
                 result = ScenarioResult(

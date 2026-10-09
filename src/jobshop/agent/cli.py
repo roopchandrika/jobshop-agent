@@ -24,6 +24,7 @@ from jobshop.agent.trace import Tracer
 from jobshop.core.generator import GeneratorSettings, generate_instance
 from jobshop.core.kpis import compute_kpis
 from jobshop.core.solver import SolverConfig, solve
+from jobshop.knowledge import KnowledgeBase, load_knowledge
 from jobshop.tools import views
 from jobshop.tools.approval import ApprovalAuthority
 from jobshop.tools.errors import ToolError
@@ -71,7 +72,8 @@ def agent_config_from_env(env: Mapping[str, str]) -> AgentConfig:
 
 
 def build_context(
-    settings: GeneratorSettings, solver_config: SolverConfig, now: datetime | None = None
+    settings: GeneratorSettings, solver_config: SolverConfig, now: datetime | None = None,
+    knowledge: KnowledgeBase | None = None,
 ) -> ToolContext:
     """Generate a shop, solve its baseline plan once, and make that the committed schedule."""
     instance = generate_instance(settings)
@@ -79,7 +81,7 @@ def build_context(
     store = Store(instance, baseline)
     if now is not None:
         store.set_clock(instance.to_minutes(now))
-    return ToolContext(store=store, authority=ApprovalAuthority(), solver_config=solver_config)
+    return ToolContext(store=store, authority=ApprovalAuthority(), solver_config=solver_config, knowledge=knowledge)
 
 
 class ChatSession:
@@ -216,7 +218,12 @@ def main(argv: list[str] | None = None) -> int:
 
     solver_config = SolverConfig(time_limit_s=seconds)
     print(f"Generating shop (seed {args.seed}) and solving the baseline plan (up to {seconds:g} s)...")
-    ctx = build_context(GeneratorSettings(seed=args.seed, n_orders=args.orders, n_machines=args.machines), solver_config, now)
+    try:
+        knowledge = load_knowledge(os.environ)
+    except ValueError as e:
+        print(f"Configuration error: {e}", file=sys.stderr)
+        return 2
+    ctx = build_context(GeneratorSettings(seed=args.seed, n_orders=args.orders, n_machines=args.machines), solver_config, now, knowledge)
 
     tracer = Tracer(
         path=Path(args.trace_dir) / f"{datetime.now():%Y%m%d-%H%M%S}.jsonl",

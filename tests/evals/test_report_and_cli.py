@@ -128,9 +128,9 @@ def test_the_oracle_run_writes_a_report_and_exits_zero(tmp_path, monkeypatch, ca
     monkeypatch.setattr(cli, "load_dotenv", lambda: None)
     code = run_cli("run", "--oracle", "--only", "read_only", "--out", str(tmp_path), "--solve-seconds", "1")
     out = capsys.readouterr().out
-    assert code == 0 and "TOTAL" in out and "5/5" in out   # read_only: q-01..q-04 on the default shop, ts-05 on the tight one
+    assert code == 0 and "TOTAL" in out and "9/9" in out   # q-01..q-04, ts-05 and the knowledge questions kn-01/02/03/05
     [run_dir] = list(tmp_path.iterdir())
-    assert (run_dir / "report.md").exists() and len(list((run_dir / "traces").glob("*.jsonl"))) == 5
+    assert (run_dir / "report.md").exists() and len(list((run_dir / "traces").glob("*.jsonl"))) == 9
 
 
 def test_a_run_with_a_failure_exits_one(tmp_path, monkeypatch, capsys):

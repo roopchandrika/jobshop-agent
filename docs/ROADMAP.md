@@ -27,7 +27,8 @@ the code on purpose.
 | 7 | FastAPI backend and web UI with an Approve button, README | done | `42da3b3` |
 | after | Rename rules file, scripted demo, fixes from the first real answer | done | `35d212c`, `043bc28`, `2add2e2` |
 | after | First real-model eval (29 scenarios, no judge): 22/29, all misses in the numbers check | done | see [Honest status](#honest-status) |
-| after | Numbers-check scope, slack/count fields, `earliest_finish` goal, prompt caching, CI, 39 scenarios on two shops | done and tested; not yet measured on the full suite with a real model | this commit |
+| after | Numbers-check scope, slack/count fields, `earliest_finish` goal, prompt caching, CI, two shops | done and tested; not yet measured on the full suite with a real model | `ef202e6`, `3998768` |
+| 8a | Plant documents: chunking, BM25 search, `search_knowledge` tool, retrieval evaluation, 5 scenarios; record/replay for evals | done and tested; **awaiting review**; embeddings (8b) not started | this commit |
 | next | Judged, repeated two-model comparison (Sonnet vs Opus, judge Fable) | **started, stopped at 46 of 234 runs to save credit; no report** | see [What is next](#what-is-next) |
 
 ## Phase by phase
@@ -121,7 +122,7 @@ the code on purpose.
 | Phase 5 | 527 |
 | Phase 6 | 592 |
 | Phase 7 | 663 |
-| now | **768** (2 more are opt-in and call the real API) |
+| now | **859** (2 more are opt-in and call the real API) |
 
 About 6,300 lines of source, 5,800 lines of tests.
 
@@ -150,8 +151,8 @@ About 6,300 lines of source, 5,800 lines of tests.
 
 **Now (small, cheap)**
 1. Put real prices in `.env` so costs show as dollars.
-2. Decide how much of the comparison to pay for. The full one (2 models, 3 runs each, 39 scenarios) is about
-   6 million agent tokens plus judge calls and about an hour; a cheaper start is one judged run of one model,
+2. Decide how much of the comparison to pay for. The full one (2 models, 3 runs each, 44 scenarios) is about
+   7 million agent tokens plus judge calls and about an hour; a cheaper start is one judged run of one model,
    or only the 10 new scenarios. Then put the table in the README.
 
 **Next**

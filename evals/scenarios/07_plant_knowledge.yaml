@@ -1,0 +1,72 @@
+scenarios:
+  # -- questions answered from the plant documents (search_knowledge) ---------------------------------------
+
+  - id: kn-01
+    category: read_only
+    description: A how-do-we question about a procedure; the answer comes from a document, with its source.
+    request: "What is our procedure when a machine breaks down?"
+    expect:
+      outcome: no_action
+      tools_required: [search_knowledge]
+      tools_forbidden: ["@edits"]
+    judge:
+      notes: Gives the steps from the breakdown procedure (stop and tag the machine, call maintenance, tell the planner, work in progress restarts) and names the document. Invents no step that the document does not contain.
+    oracle:
+      calls: [{tool: search_knowledge, args: {query: "machine breakdown first response work in progress", k: 3}}]
+      say: "From sop-machine-breakdown.md: stop and tag the machine DOWN and call maintenance on extension 4100. The planner is told within 10 minutes, and an operation that was running restarts from the beginning."
+
+  - id: kn-02
+    category: read_only
+    description: A question about a past incident, with figures that must be quoted exactly.
+    request: "How long was the last M3 coolant pump failure, and what did we do about it?"
+    expect:
+      outcome: no_action
+      tools_required: [search_knowledge]
+      tools_forbidden: ["@edits"]
+    judge:
+      notes: States that M3 was out for 3 hours and 10 minutes, that drilling moved to M1 and M2, and that two orders were late. Names the incident report. Quotes the figures as written.
+    oracle:
+      calls: [{tool: search_knowledge, args: {query: "M3 coolant pump failure", k: 3}}]
+      say: "According to incident-2025-11-m3-coolant-pump.md, M3 was out of service for 3 hours and 10 minutes. Drilling work was moved to M1 and M2, and two orders finished late."
+
+  - id: kn-03
+    category: read_only
+    description: Overtime is a policy question; the scheduler cannot model it, and the answer must not offer to test it.
+    request: "Can we run overtime tonight to catch up?"
+    expect:
+      outcome: no_action
+      tools_required: [search_knowledge]
+      tools_forbidden: ["@edits"]
+    judge:
+      notes: Gives the policy (needs the production manager's approval at least 4 hours before the shift ends, limited to 2 hours a day) and names the document. Says the scheduler cannot model overtime here and does not offer to try it.
+    oracle:
+      calls: [{tool: search_knowledge, args: {query: "overtime approval", k: 3}}]
+      say: "Per shift-and-overtime-policy.md, overtime needs the production manager's approval at least 4 hours before the shift ends and is limited to 2 hours per day. I cannot test overtime in the scheduler."
+
+  - id: kn-04
+    category: multiple_disruptions
+    description: A disruption where a procedure matters; the agent must both re-plan and consult the documents.
+    request: "M3 is down from 11:00 to 14:00. Is there anything in our procedures I should know before I approve a plan?"
+    expect:
+      outcome: proposal
+      changes: {downtimes: [{machine: M3, start: "2026-01-05 11:00", end: "2026-01-05 14:00"}]}
+      tools_required: [create_draft, simulate_downtime, reschedule, compare_schedules, search_knowledge]
+      max_calls: {reschedule: 1}
+    judge:
+      notes: Reports the effect of the outage from the comparison and also relevant points from the documents (for example the 20 minute warm-up after a repair, or the M3 coolant incident), naming the source. Keeps document figures separate from the schedule's numbers.
+    oracle:
+      calls: [{tool: search_knowledge, args: {query: "machine breakdown warm-up", k: 3}}]
+
+  - id: kn-05
+    category: read_only
+    description: The documents say nothing about this; the honest answer is that nothing was found.
+    request: "What is on the canteen menu today?"
+    expect:
+      outcome: no_action
+      tools_required: [search_knowledge]
+      tools_forbidden: ["@edits"]
+    judge:
+      notes: Says plainly that the plant documents contain nothing about the canteen menu. Does not invent a menu or answer from imagination.
+    oracle:
+      calls: [{tool: search_knowledge, args: {query: "canteen menu", k: 3}}]
+      say: "I found nothing about the canteen menu in the plant documents."

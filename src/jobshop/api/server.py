@@ -17,12 +17,21 @@ from jobshop.api.app import LOOPBACK_HOSTS, create_app
 from jobshop.core.generator import GeneratorSettings
 from jobshop.core.solver import SolverConfig
 from jobshop.evals.shop import DEFAULT_NOW, fresh_context, load_shop
+from jobshop.knowledge import load_knowledge
 from jobshop.tools.functions import ToolContext
 
 DEFAULT_FIXTURE = Path("evals/shop.json")
 
 
 def build_shop_context(args: argparse.Namespace, solver_config: SolverConfig) -> ToolContext:
+    ctx = _shop_context(args, solver_config)
+    ctx.knowledge = load_knowledge(os.environ)   # ./knowledge unless JOBSHOP_KNOWLEDGE_DIR says otherwise
+    if ctx.knowledge is not None:
+        print(f"Plant documents loaded: {len(ctx.knowledge.sources)} files, {len(ctx.knowledge.chunks)} passages.")
+    return ctx
+
+
+def _shop_context(args: argparse.Namespace, solver_config: SolverConfig) -> ToolContext:
     """The committed fixture shop if there is one (instant start), else generate and solve a fresh one."""
     now = args.now or DEFAULT_NOW
     if args.fixture.exists() and not args.generate:
@@ -65,7 +74,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"No model configured ({e}). The page will show the plan, but chat is disabled.", file=sys.stderr)
         config, client = agent_config_from_env({"ANTHROPIC_MODEL": "none"}), None
 
-    ctx = build_shop_context(args, solver_config)
+    try:
+        ctx = build_shop_context(args, solver_config)
+    except ValueError as e:   # e.g. JOBSHOP_KNOWLEDGE_DIR names a folder that does not exist
+        print(f"Configuration error: {e}", file=sys.stderr)
+        return 2
     trace = args.trace_dir / f"api-{datetime.now():%Y%m%d-%H%M%S}.jsonl"
     app = create_app(ctx, client, config, tracer_path=trace)
     print(f"Open http://{args.host}:{args.port}   (trace: {trace})")

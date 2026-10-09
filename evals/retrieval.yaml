@@ -1,0 +1,32 @@
+questions:
+  # -- ordinary questions: the document uses the words a person would use ---------------------------------
+  - {id: r-01, question: "What number do I call when a machine stops?", sources: [sop-machine-breakdown.md]}
+  - {id: r-02, question: "How long is the warm-up after a machine has been repaired?", sources: [sop-machine-breakdown.md, incident-2025-09-power-dip.md]}
+  - {id: r-03, question: "Who can approve a rush order?", sources: [sop-rush-orders.md]}
+  - {id: r-04, question: "How many rush orders can we accept in one shift?", sources: [sop-rush-orders.md]}
+  - {id: r-05, question: "Can a rush order push back a priority 5 order?", sources: [sop-rush-orders.md]}
+  - {id: r-06, question: "How many orders can hold priority 5 at the same time?", sources: [sop-priority-changes.md]}
+  - {id: r-07, question: "What is priority 5 reserved for?", sources: [sop-priority-changes.md, customer-contracts.md]}
+  - {id: r-08, question: "What hours does the plant run?", sources: [shift-and-overtime-policy.md]}
+  - {id: r-09, question: "Is overtime allowed and who approves it?", sources: [shift-and-overtime-policy.md]}
+  - {id: r-10, question: "How long was M3 down after the coolant pump failed?", sources: [incident-2025-11-m3-coolant-pump.md]}
+  - {id: r-11, question: "Which orders were late during the M3 coolant incident?", sources: [incident-2025-11-m3-coolant-pump.md]}
+  - {id: r-12, question: "How long did it take to restart the shop after the power dip?", sources: [incident-2025-09-power-dip.md]}
+  - {id: r-13, question: "In what order do we restart the machines after a power loss?", sources: [incident-2025-09-power-dip.md]}
+  - {id: r-14, question: "How often does the M2 spindle bearing fail?", sources: [machine-m2-history.md]}
+  - {id: r-15, question: "What vibration level warns of M2 bearing wear?", sources: [machine-m2-history.md]}
+  - {id: r-16, question: "Which machines can grind?", sources: [machine-capabilities.md, machine-m2-history.md]}
+  - {id: r-17, question: "Why is grinding usually the bottleneck?", sources: [machine-capabilities.md]}
+  - {id: r-18, question: "How long does the housing inspection take?", sources: [quality-inspection-rules.md]}
+  - {id: r-19, question: "Does the scheduler include changeover time?", sources: [changeover-and-tooling.md]}
+  - {id: r-20, question: "What late penalty applies to Alpha Drives orders?", sources: [customer-contracts.md]}
+  - {id: r-21, question: "What must happen before anyone repairs inside a machine?", sources: [safety-lockout.md]}
+  - {id: r-22, question: "Can we schedule work on a machine that is locked out?", sources: [safety-lockout.md]}
+
+  # -- hard: same need, different words. A keyword index is expected to miss many of these -------------------
+  - {id: h-01, hard: true, question: "What do we do if a machine suddenly dies?", sources: [sop-machine-breakdown.md]}
+  - {id: h-02, hard: true, question: "The motor on the second mill is seizing up again, has that happened before?", sources: [machine-m2-history.md]}
+  - {id: h-03, hard: true, question: "How much do we lose if we ship late to our biggest customer?", sources: [customer-contracts.md]}
+  - {id: h-04, hard: true, question: "Do we have to recheck parts after they come off the grinder?", sources: [quality-inspection-rules.md]}
+  - {id: h-05, hard: true, question: "Is working extra hours at night okay?", sources: [shift-and-overtime-policy.md]}
+  - {id: h-06, hard: true, question: "Someone wants their job done faster than normal, what is the rule?", sources: [sop-rush-orders.md]}

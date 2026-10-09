@@ -102,3 +102,20 @@ def test_the_real_server_serves_the_page_the_state_and_refuses_a_forged_host(liv
     post = http.client.HTTPConnection("127.0.0.1", live_server)
     post.request("POST", "/api/approve", body=json.dumps({"draft_id": "D1", "digest": "0" * 64}), headers={"Content-Type": "application/json"})
     assert post.getresponse().status == 403                         # and so is a POST without the page's token
+
+
+def test_the_plant_documents_are_found_in_the_default_folder_and_can_be_switched_off(quiet, monkeypatch):
+    monkeypatch.chdir(EVALS.parent)                                   # the repo root, where ./knowledge lives
+    seen = run_main_capturing_the_app(monkeypatch, ["--fixture", str(EVALS / "shop.json")])
+    assert len(seen["app"].state.web.ctx.knowledge.sources) == 12
+
+    monkeypatch.setenv("JOBSHOP_KNOWLEDGE_DIR", "off")
+    seen = run_main_capturing_the_app(monkeypatch, ["--fixture", str(EVALS / "shop.json")])
+    assert seen["app"].state.web.ctx.knowledge is None
+
+
+def test_a_mistyped_documents_folder_is_a_clear_configuration_error_not_a_traceback(quiet, monkeypatch, capsys, tmp_path):
+    monkeypatch.setenv("JOBSHOP_KNOWLEDGE_DIR", str(tmp_path / "typo"))
+    assert server.main(["--fixture", str(EVALS / "shop.json")]) == 2
+    err = capsys.readouterr().err
+    assert "Configuration error" in err and "JOBSHOP_KNOWLEDGE_DIR" in err and "is not a folder" in err

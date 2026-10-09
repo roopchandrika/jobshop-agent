@@ -24,3 +24,6 @@ logs/
 # Eval run output (regenerate with `python -m jobshop.evals run`); the folder itself stays
 evals/results/*
 !evals/results/.gitkeep
+
+# Private interview notes and demo script (not published)
+INTERVIEW_NOTES.md
