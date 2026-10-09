@@ -63,7 +63,7 @@ def render_markdown(meta: dict[str, Any], summary: dict[str, Any], results: list
     out = [f"# Eval run {meta['run_id']}", ""]
     out += [f"- agent model: `{meta['model']}`", f"- judge model: `{meta['judge_model'] or 'none (judge skipped)'}`",
             f"- scenarios: {meta['scenarios']} x {meta['repeat']} run(s); solver limit {meta['solve_seconds']:g} s",
-            f"- agent tokens: {summary['agent_tokens']}, judge tokens: {summary['judge_tokens']}, "
+            f"- agent tokens: {summary['agent_tokens']} ({summary['agent_cached_tokens']} of them read from the prompt cache), judge tokens: {summary['judge_tokens']}, "
             f"agent cost: {'n/a (no prices set)' if summary['agent_cost_usd'] is None else '$' + str(summary['agent_cost_usd'])}, "
             f"mean wall time per run: {summary['mean_wall_s']} s", ""]
     if summary["judge_errors"]:

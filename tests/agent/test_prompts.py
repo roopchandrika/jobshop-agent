@@ -13,9 +13,10 @@ RULES = {
                            "Never describe a drop as idle machines or spare capacity"],
     "only suggest what the tools can try": ["Only suggest next steps you can try with your tools",
                                              "You cannot model overtime, extra shifts, subcontracting or moving maintenance",
-                                             "never offer to try it", "at most one suggestion"],
-    "quote slack and counts, do not compute them": ["Order rows include slack_min", "total_orders and on_time_orders",
-                                                     "order_count and on_time_count", "do not subtract times or count orders yourself"],
+                                             "never offer to try it", "at most one suggestion", "wait for the planner to say yes before doing it"],
+    "quote slack and counts, do not compute them": ["Order rows include slack_min", "negative means late",
+                                                     "total_orders and on_time_orders for the whole plan, whatever filter you used",
+                                                     "order_count is only the rows listed", "do not subtract times or count orders yourself"],
     "say plainly that it cannot commit": ["say plainly in your first sentence that you cannot",
                                            "only a human approving a proposal can", "do not edit anything just because you were asked to commit"],
     "the two goals": ["reschedule has two goals, and both avoid late orders first", "fewest_moves", "earliest_finish",
@@ -46,7 +47,7 @@ def test_the_levers_the_prompt_offers_are_exactly_the_ones_the_tools_provide(ctx
         "reschedule", "compare_schedules"}}
     assert scenario_tools == {"simulate_downtime", "change_priority", "add_rush_order"}
     flat = " ".join(build_system_prompt(ctx).split())
-    assert "a machine outage, a priority change, a rush order, or re-solving for the earliest finish. You cannot model overtime" in flat   # the list ends exactly there
+    assert "a machine outage, a priority change, a rush order, or re-solving for the earliest finish. Make at most one suggestion" in flat   # the list ends exactly there
 
 
 def test_the_original_safety_and_honesty_rules_are_still_there(prompt):

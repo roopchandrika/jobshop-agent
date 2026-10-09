@@ -10,7 +10,7 @@ and approves it.
 This is a portfolio project, built to learn AI engineering. The agent's tool-use loop is written by hand
 on the Anthropic SDK (no agent framework), and all data is synthetic.
 
-> **Status.** Built, with 749 automated tests (plus 2 opt-in tests that call the real API) and CI on every
+> **Status.** Built, with 768 automated tests (plus 2 opt-in tests that call the real API) and CI on every
 > push. A first evaluation on a real model has been run: 29 scenarios, one run each, LLM judge off. Results
 > are [below](#results-from-a-real-model), including where they fall short. Since then the suite grew to 39
 > scenarios on two shops, and the agent gained prompt caching and a second solver goal. A judged, repeated
@@ -274,7 +274,7 @@ it opens instantly. Without an API key it still shows the plan and chat is disab
 | Verified | Not verified |
 |---|---|
 | The solver against an independent validator and recomputation | The LLM judge on a real model (never run) |
-| Tools, loop, approval, store and the MCP server over real stdio, by 749 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
+| Tools, loop, approval, store and the MCP server over real stdio, by 768 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
 | The web API (CSRF, Origin, Host, CSP, approval fingerprint) over a real socket | The live prompt-injection test (`JOBSHOP_RUN_LIVE=1`, opt-in; the eval scenarios gave a first read instead) |
 | The UI in a real browser: chat, proposal, Approve, charts, dark mode, phone width, and HTML in answers staying inert text | Claude Desktop/Code connecting to the MCP server |
 | A real model on 29 scenarios, deterministic checks only (results above); one real chat in the web UI, checked by hand | The Approve flow with a real model; screen readers; browsers other than one |

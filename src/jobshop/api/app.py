@@ -100,7 +100,7 @@ class WebState:
 
     def record_answer(self, result: TurnResult) -> None:
         final = result.final
-        usage = {"steps": result.steps, "tokens": result.input_tokens + result.output_tokens, "cost_usd": result.cost_usd}
+        usage = {"steps": result.steps, "tokens": result.total_tokens, "cost_usd": result.cost_usd}
         if final is None:
             self.transcript.append({"role": "assistant", "kind": "stopped", "text": result.text or "No answer.", "usage": usage})
             self.proposal_draft = None

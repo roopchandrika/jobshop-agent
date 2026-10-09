@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StrictBool, WithJsonSchema
 
@@ -34,6 +34,7 @@ from jobshop.tools.text import untrusted_text
 from jobshop.tools.views import (
     AssignmentView,
     DiffView,
+    Goal,
     KPIView,
     OrderRowView,
     SolveView,
@@ -208,8 +209,11 @@ class ListOrdersInput(Input):
 class OrdersOut(View):
     source: str
     now: str
-    order_count: int  # how many rows are listed, so nobody has to count them
-    on_time_count: int | None  # of those rows; None when there is no solved schedule to judge by
+    order_count: int  # how many rows are listed below, so nobody has to count them
+    # These two describe the whole plan, whatever filter was used for the rows, so a late-only list
+    # cannot be misread as "no orders are on time". on_time_orders is None without a solved schedule.
+    total_orders: int
+    on_time_orders: int | None
     orders: list[OrderRowView]
 
 
@@ -222,8 +226,10 @@ def list_orders(ctx: ToolContext, a: ListOrdersInput) -> OrdersOut:
     rows = [views.order_row(inst, o, kpis) for o in inst.orders if a.family in (None, o.family)]
     if a.late_only:
         rows = [r for r in rows if (r.tardiness_min or 0) > 0]
-    on_time = None if kpis is None else sum(1 for r in rows if (r.tardiness_min or 0) == 0)
-    return OrdersOut(source=src.label, now=fmt(inst, inst.now), order_count=len(rows), on_time_count=on_time, orders=rows)
+    return OrdersOut(
+        source=src.label, now=fmt(inst, inst.now), order_count=len(rows), total_orders=len(inst.orders),
+        on_time_orders=None if kpis is None else len(kpis.orders) - kpis.late_orders, orders=rows,
+    )
 
 
 class GetOrderInput(Input):
@@ -446,7 +452,7 @@ class InterruptedView(View):
 
 
 class RescheduleInput(DraftIdInput):
-    goal: Literal["fewest_moves", "earliest_finish"] = Field(
+    goal: Goal = Field(
         "fewest_moves",
         description=(
             "Both goals avoid late orders first. 'fewest_moves' (default) then moves the fewest operations "

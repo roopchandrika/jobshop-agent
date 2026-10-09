@@ -119,3 +119,45 @@ def test_an_old_trace_without_cache_fields_still_reads(tmp_path):
                       "latency_ms": 1, "tool_calls": []}) + "\n"
     )
     assert summarize(read_trace(path)).cache_read_tokens == 0
+
+
+# -- what a person is shown: tokens used include the cached ones --------------------------------------------
+
+
+def cached_script():
+    return [message(tool("get_schedule", "t1"), tokens_in=10, tokens_out=20, cache_write=4000),
+            message(tool("get_schedule", "t2"), tokens_in=10, tokens_out=20, cache_read=4000),
+            submit(summary="Done.")]            # submit() adds 100 in, 50 out
+
+
+def test_a_turn_reports_everything_the_model_processed_as_its_token_total(ctx, registry):
+    result, _, _ = turn(ctx, registry, cached_script())
+    assert result.input_tokens == 120 and result.output_tokens == 90          # uncached input, output
+    assert result.total_tokens == 120 + 90 + 4000 + 4000
+
+
+def test_the_chat_terminal_shows_the_total_and_how_much_came_from_the_cache(ctx):
+    from tests.agent.test_cli import Session
+
+    s = Session(ctx, cached_script())
+    s.chat.handle("Show me the plan.")
+    assert "3 model calls, 8210 tokens, 4000 read from cache" in s.output
+
+
+def test_the_terminal_omits_the_cache_note_when_nothing_was_cached(ctx):
+    from tests.agent.test_cli import Session
+
+    s = Session(ctx, [submit(summary="Done.")])
+    s.chat.handle("Hello.")
+    assert "1 model calls, 150 tokens)" in s.output and "from cache" not in s.output
+
+
+def test_the_eval_report_says_how_many_tokens_were_cached():
+    from jobshop.evals.report import render_markdown, summarize
+    from jobshop.evals.runner import ScenarioResult
+
+    results = [ScenarioResult("a", "read_only", 1, "answered", True, input_tokens=100, output_tokens=50,
+                              cache_read_tokens=900, cache_write_tokens=50)]
+    text = render_markdown({"run_id": "r", "model": "m", "judge_model": None, "scenarios": 1, "repeat": 1, "solve_seconds": 5},
+                           summarize(results), results)
+    assert "agent tokens: 1100 (900 of them read from the prompt cache)" in text

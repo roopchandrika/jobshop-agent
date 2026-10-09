@@ -121,7 +121,7 @@ the code on purpose.
 | Phase 5 | 527 |
 | Phase 6 | 592 |
 | Phase 7 | 663 |
-| now | **749** (2 more are opt-in and call the real API) |
+| now | **768** (2 more are opt-in and call the real API) |
 
 About 6,300 lines of source, 5,800 lines of tests.
 

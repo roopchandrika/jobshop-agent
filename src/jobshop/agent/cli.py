@@ -137,7 +137,8 @@ class ChatSession:
         for warning in final.warnings:
             self.out(f"\n! {warning}")
         cost = f", ${result.cost_usd:.4f}" if result.cost_usd is not None else ""
-        self.out(f"\n({result.steps} model calls, {result.input_tokens + result.output_tokens} tokens{cost})")
+        cached = f", {result.cache_read_tokens} read from cache" if result.cache_read_tokens else ""
+        self.out(f"\n({result.steps} model calls, {result.total_tokens} tokens{cached}{cost})")
 
     # -- the human approval gate --------------------------------------------------------------
 

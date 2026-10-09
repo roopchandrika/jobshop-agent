@@ -8,6 +8,8 @@ model to re-round differently from what the planner sees elsewhere.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict
 
 from jobshop.core.kpis import KPIs, ScheduleDiff
@@ -18,7 +20,10 @@ class View(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-GOAL_LABELS = {
+# What a re-plan optimises after avoiding late orders. The one place the names are defined: the tool's
+# argument, the draft, the answer and the eval scenarios all use this type.
+Goal = Literal["fewest_moves", "earliest_finish"]
+GOAL_LABELS: dict[Goal, str] = {
     "fewest_moves": "fewest operations moved, then earliest finish",
     "earliest_finish": "earliest finish, then fewest operations moved",
 }
@@ -39,7 +44,8 @@ class OrderRowView(View):
     due_at: str
     completion_at: str | None = None  # None when there is no solved schedule to read from
     tardiness_min: int | None = None
-    # Minutes between finishing and the due time (0 if it finishes late). Given so nobody has to subtract.
+    # Due time minus finish, in minutes: negative when the order is late, so late and exactly-on-time
+    # are never confused. Given so nobody has to subtract.
     slack_min: int | None = None
 
 
@@ -93,7 +99,7 @@ def order_row(instance: Instance, order: Order, kpis: KPIs | None) -> OrderRowVi
             update={
                 "completion_at": fmt(instance, match.completion),
                 "tardiness_min": match.tardiness,
-                "slack_min": max(0, order.due - match.completion),
+                "slack_min": order.due - match.completion,
             }
         )
     return row

@@ -65,7 +65,7 @@ Each scenario names the fixture shop it starts from (`shop:`, default `default`)
 | Shop | Fixture | What it is for |
 |---|---|---|
 | `default` | `evals/shop.json` | 12 orders on 4 machines, one day. Slack everywhere, so most disruptions are absorbed with no late orders. Tests that the agent does not invent problems |
-| `tight` | `evals/shop_tight.json` | 19 orders on the same 4 machines. The live plan is on time, but almost any outage makes an order late, so the agent has real consequences to explain (10 scenarios use it) |
+| `tight` | `evals/shop_tight.json` | 19 orders on the same 4 machines. The live plan is on time, but almost any outage makes an order late, so the agent has real consequences to explain (6 scenarios use it) |
 
 The tight shop (generator seed 2, 19 orders) was chosen by trying seeds. Bigger or more loaded shops whose
 live plan was already late could not be proven optimal in a few seconds, which would make results depend on
@@ -92,8 +92,9 @@ no longer comparable.
   is kept in the README as measured. A wrong fact stated inside a question is now left to the judge.
 - **The tools now return what the model used to compute.** The same run showed the model subtracting two
   times ("20 minutes before its due time") and counting a list ("all 12 orders"). Order rows now carry
-  `slack_min`, KPIs carry `total_orders` and `on_time_orders`, and `list_orders` returns `order_count` and
-  `on_time_count`, so the right behaviour is also the easy one.
+  `slack_min` (negative when late), KPIs carry `total_orders` and `on_time_orders`, and `list_orders` returns
+  `total_orders` and `on_time_orders` for the whole plan whatever its filter, plus `order_count` for the rows
+  listed, so the right behaviour is also the easy one.
 - **The judge is a different model from the one under test** (enforced), is told the answer under
   review is untrusted text, is forced to answer through a closed-schema tool call, and is graded
   against facts the harness recorded (KPIs, draft changes, solver status), not its own opinion of

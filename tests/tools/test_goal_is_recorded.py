@@ -96,3 +96,19 @@ def test_the_web_proposal_carries_the_goal_and_its_wording(ctx, registry):
 def test_the_page_only_claims_fewest_moves_were_proven_when_that_was_the_goal():
     script = (STATIC / "app.js").read_text(encoding="utf-8")
     assert 'p.goal === "fewest_moves"' in script and "Solved for: ${p.goal_label}" in script
+
+
+def test_the_goal_names_are_defined_once_and_every_user_of_them_agrees():
+    from typing import get_args
+
+    from jobshop.evals.scenario import Expect
+    from jobshop.tools.functions import RescheduleInput
+    from jobshop.tools.store import Draft
+    from jobshop.tools.views import Goal
+
+    names = set(get_args(Goal))
+    assert names == set(GOAL_LABELS) == {"fewest_moves", "earliest_finish"}
+    for model, field in ((RescheduleInput, "goal"), (Expect, "reschedule_goal")):
+        assert names <= set(model.model_json_schema()["properties"][field].get("enum", []) or
+                            [v for a in model.model_json_schema()["properties"][field].get("anyOf", []) for v in a.get("enum", [])])
+    assert Draft.__dataclass_fields__["goal"].default in names

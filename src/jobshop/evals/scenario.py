@@ -16,6 +16,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from jobshop.tools.registry import TOOLS
+from jobshop.tools.views import Goal
 
 # Tools that change a draft or start a solve; "@edits" in a scenario expands to these.
 EDIT_TOOLS = ["create_draft", "discard_draft", "simulate_downtime", "change_priority", "add_rush_order", "reschedule"]
@@ -81,7 +82,7 @@ class Expect(_Data):
     tools_forbidden: list[str] = []
     max_calls: dict[str, int] = {}
     # If set, every successful reschedule must have used this goal (the tool's default is fewest_moves).
-    reschedule_goal: Literal["fewest_moves", "earliest_finish"] | None = None
+    reschedule_goal: Goal | None = None
 
     @field_validator("tools_forbidden")
     @classmethod

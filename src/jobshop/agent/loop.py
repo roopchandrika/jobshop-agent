@@ -34,7 +34,7 @@ from jobshop.tools.errors import ToolError
 from jobshop.tools.functions import DraftId
 from jobshop.tools.outcome import draft_outcome
 from jobshop.tools.registry import ToolRegistry
-from jobshop.tools.views import KPIView
+from jobshop.tools.views import Goal, KPIView
 
 SUBMIT = "submit_response"
 
@@ -80,7 +80,7 @@ class FinalResponse(AnswerPayload):
     kpi_after: KPIView | None = None
     needs_approval: bool = False
     warnings: list[str] = Field(default_factory=list)
-    goal: str | None = None  # what the proposal was solved for, recorded by the draft
+    goal: Goal | None = None  # what the proposal was solved for, recorded by the draft
 
 
 @dataclass(frozen=True)
@@ -125,6 +125,11 @@ class TurnResult:
     # input_tokens above counts only uncached input, as the API reports it; cached input is counted here.
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+
+    @property
+    def total_tokens(self) -> int:
+        """Everything the model processed, cached or not (what a person means by "tokens used")."""
+        return self.input_tokens + self.output_tokens + self.cache_read_tokens + self.cache_write_tokens
 
 
 def run_turn(

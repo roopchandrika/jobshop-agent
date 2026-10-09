@@ -13,7 +13,7 @@ from jobshop.core.kpis import compute_kpis
 from jobshop.tools import views
 from jobshop.tools.errors import ToolError
 from jobshop.tools.functions import ToolContext
-from jobshop.tools.views import KPIView
+from jobshop.tools.views import Goal, KPIView
 
 
 @dataclass
@@ -23,7 +23,7 @@ class DraftOutcome:
     kpi_after: KPIView | None = None
     needs_approval: bool = False
     warnings: list[str] = field(default_factory=list)
-    goal: str | None = None  # what the draft was solved for, from the draft, not from the model
+    goal: Goal | None = None  # what the draft was solved for, from the draft, not from the model
 
 
 def draft_outcome(ctx: ToolContext, draft_id: str | None) -> DraftOutcome:

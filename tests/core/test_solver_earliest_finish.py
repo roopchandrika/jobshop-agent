@@ -96,3 +96,16 @@ def test_on_generated_shops_the_first_goal_is_unchanged_and_the_second_can_only_
     # the numbers it reports about itself match an independent comparison
     moved = len(diff_schedules(disrupted, ref, disrupted, fast).moved_operations)
     assert fast.solve_info.reported_moved_operations == moved
+
+
+def test_if_the_second_stage_gets_no_time_the_fallback_is_the_stable_plan_not_an_arbitrary_one():
+    from jobshop.core.solver import SolverConfig
+
+    inst, ref = wasteful_plan()
+    out_of_time = SolverConfig(time_limit_s=0.1, num_workers=1, seed=0)   # stage 2 needs 0.2 s left, so it is skipped
+    fast = solve(inst, config=out_of_time, stay_close_to=ref, earliest_finish=True)
+
+    assert fast.solve_info.makespan_optimal is False and fast.solve_info.status == SolveStatus.FEASIBLE
+    assert fast.solve_info.reported_moved_operations == 0                   # the live plan, untouched
+    assert compute_kpis(inst, fast).makespan == 110 and validate_schedule(inst, fast).ok
+    assert fast.solve_info.stability_optimal is None                        # still never claimed for this goal

@@ -94,7 +94,8 @@ def solve(
     ``earliest_finish`` swaps the last two goals when there is a reference: tardiness, then the
     earliest finish, then fewest moves. The default order can leave the shop finishing hours later
     than necessary just to avoid moving a few operations; this is the planner's alternative.
-    ``stability_optimal`` is then left unset: "fewest moves" is no longer the second goal.
+    ``stability_optimal`` is then left unset: "fewest moves" is no longer the second goal. If the
+    time runs out before stage 2, the result is the fewest-moves plan, marked FEASIBLE.
     """
     started = time.monotonic()
     frozen_by_op = _check_frozen(instance, frozen)
@@ -122,8 +123,10 @@ def solve(
     if hint is not None:
         _apply_hint(built, hint)
     moved1, comparable = (None, 0)
-    finish_first = earliest_finish and stay_close_to is not None  # moves are decided in stage 2 instead
-    if stay_close_to is not None and not finish_first:
+    # Stage 1 is the same in both goal orders (tardiness, then fewest moves), so if stage 2 gets no time
+    # the fallback is the stable plan, not an arbitrary one. Only stage 2 differs.
+    finish_first = earliest_finish and stay_close_to is not None
+    if stay_close_to is not None:
         moved1, comparable = _add_stability(built, stay_close_to, frozen_by_op)
     scale = comparable + 1
     if moved1 is not None and comparable:
@@ -143,7 +146,8 @@ def solve(
     stage1_optimal = status1 == cp_model.OPTIMAL
     # A proof of the combined objective proves both parts, in that priority order.
     tardiness_optimal = stage1_optimal
-    stability_optimal: bool | None = stage1_optimal if moved1 is not None else None
+    # With earliest_finish "fewest moves" is no longer the second goal, so it is never claimed as proven.
+    stability_optimal: bool | None = stage1_optimal if moved1 is not None and not finish_first else None
     # Lower bound on weighted tardiness implied by the bound on the combined objective.
     tardiness_bound = max(0.0, (solver1.best_objective_bound - comparable) / scale)
 
