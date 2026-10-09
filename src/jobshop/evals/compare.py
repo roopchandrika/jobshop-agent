@@ -32,9 +32,11 @@ from jobshop.evals.stats import mean, percentile, sign_test_p, wilson_interval
 
 @dataclass
 class ModelSpec:
-    name: str
+    name: str                       # the label in the report; also the model id unless ``model`` says otherwise
     client_for: Callable[[Scenario], Any]
     prices: Prices | None = None
+    model: str | None = None        # the real model id, when the label is something like "claude-x [verify]"
+    pattern: str | None = None      # run this model with a different agent pattern (see agent/patterns.py)
 
 
 def slug(name: str) -> str:
@@ -57,13 +59,13 @@ def run_comparison(
     names = [m.name for m in models]
     if len(set(names)) != len(names) or len(models) < 2:
         raise ValueError("compare needs at least two distinct models")
-    if judge is not None and judge[1] in names:
+    if judge is not None and judge[1] in {m.model or m.name for m in models}:
         raise ValueError(f"the judge ({judge[1]}) must not be one of the models being compared")
 
     results: dict[str, list[ScenarioResult]] = {}
     for spec in models:
         config = replace(
-            base_config, model=spec.name, max_cost_usd=None,
+            base_config, model=spec.model or spec.name, pattern=spec.pattern or base_config.pattern, max_cost_usd=None,
             price_input_per_mtok=spec.prices.input_per_mtok if spec.prices else None,
             price_output_per_mtok=spec.prices.output_per_mtok if spec.prices else None,
         )

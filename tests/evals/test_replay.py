@@ -114,7 +114,7 @@ def test_a_changed_system_prompt_is_detected(chosen, shops, tmp_path, monkeypatc
     from jobshop.evals import runner
 
     original = runner.build_system_prompt
-    monkeypatch.setattr(runner, "build_system_prompt", lambda ctx: original(ctx) + "\nAlso be brief.")
+    monkeypatch.setattr(runner, "build_system_prompt", lambda ctx, prefs=(): original(ctx, prefs) + "\nAlso be brief.")
     [result] = play_back(chosen[:1], shops, tmp_path)
     assert result.status == "crashed" and "different request" in result.error
 

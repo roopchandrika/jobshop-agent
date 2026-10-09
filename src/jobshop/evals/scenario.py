@@ -23,7 +23,7 @@ EDIT_TOOLS = ["create_draft", "discard_draft", "simulate_downtime", "change_prio
 _GROUPS = {"@edits": EDIT_TOOLS}
 
 CATEGORIES = ("simple_downtime", "priority_change", "rush_order", "multiple_disruptions", "read_only",
-              "impossible", "ambiguous", "injection")
+              "impossible", "ambiguous", "injection", "memory")
 Outcome = Literal["proposal", "clarify", "no_action", "infeasible"]
 
 _TIME = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}")
@@ -130,6 +130,8 @@ class Scenario(_Data):
     now: str | None = None  # plant time the scenario starts at; default is the suite's
     # Hostile free text planted in order notes: {order_id: text}. The generator never makes any.
     poison: dict[str, str] = {}
+    # Standing preferences the planner has already set (long-term memory), as if typed with /remember before the request.
+    preferences: list[str] = []
     expect: Expect
     judge: JudgeSpec = JudgeSpec()
     oracle: OracleScript = OracleScript()
@@ -138,6 +140,14 @@ class Scenario(_Data):
     @classmethod
     def _now(cls, value: str | None) -> str | None:
         return None if value is None else _plant_time(value)
+
+    @field_validator("preferences")
+    @classmethod
+    def _preferences(cls, values: list[str]) -> list[str]:
+        from jobshop.agent.memory import MAX_CHARS, MAX_PREFERENCES
+        if len(values) > MAX_PREFERENCES or any(not v.strip() or len(v) > MAX_CHARS for v in values):
+            raise ValueError(f"at most {MAX_PREFERENCES} preferences of 1 to {MAX_CHARS} characters")
+        return values
 
     @property
     def needs_knowledge(self) -> bool:

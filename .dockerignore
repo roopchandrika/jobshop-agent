@@ -1,0 +1,17 @@
+# Keep secrets, history, caches and local state out of the image.
+.git
+.github
+.venv
+.env
+.cache
+logs
+evals/results
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+tests
+docs
+scripts
+INTERVIEW_NOTES.md
+docs/SPEC.md

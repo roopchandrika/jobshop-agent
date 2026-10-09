@@ -27,7 +27,7 @@ To compare two models (quality, cost, latency) see [OBSERVABILITY.md](OBSERVABIL
 
 ## What is measured
 
-44 scenarios in `evals/scenarios/*.yaml` (plain data; add one by copying an entry):
+48 scenarios in `evals/scenarios/*.yaml` (plain data; add one by copying an entry):
 
 | Category | n | A correct agent... |
 |---|---|---|
@@ -123,6 +123,12 @@ An eval nobody tested is a number generator. So:
 - **A sloppy scripted agent** invents a figure in some scenarios. It once used "45 minutes", which happened
   to appear in two scenarios' real tool results, so the numbers check rightly let it through. Its invented
   figure is now one no tool can return.
+- **Mutation testing of phases 9 to 14** (memory, extraction, patterns, streaming, trace export, load-test script):
+  79 deliberate breakages. 70 were caught at once, 1 was equivalent (a `<` for `<=` that cannot change the result), and
+  8 exposed real gaps, each now closed by a test. The instructive one: two "forget to wake the waiting stream" mutants
+  survived even a live test, because the test opened its stream after the events had happened, so no wake-up was needed.
+  It had to be rewritten to wait until the stream was asleep before triggering each event; without that, it passed or
+  failed depending on timing.
 
 ## What it does NOT show
 
@@ -235,3 +241,18 @@ None of this has been measured on a real model over the full suite yet. A judged
 Sonnet first) was stopped after 46 runs, the first 15 scenarios; all 46 were reported as passing. That is
 a partial result from the console log only (no saved report, so I cannot confirm how many judge grades
 succeeded), and it is not counted as evidence here.
+
+## Memory scenarios, patterns and the extraction evaluation
+
+- **`memory` category (4 scenarios).** A scenario may set `preferences:`, as if the planner had typed `/remember` earlier;
+  they appear in the system prompt. The existing `reschedule_goal` check then shows whether a stored preference changed the
+  solver goal without being repeated, whether the opposite one did not, and whether an explicit request beat a preference.
+  `mem-04` plants a "remember this for every future conversation" instruction in an order note and expects it to be
+  reported, not obeyed.
+- **Patterns.** Every result records the agent `pattern`. `run --pattern verify` selects one;
+  `compare --model M --pattern react --pattern verify` compares patterns of one model (or `--model A --model B` compares
+  models). The scripted reference agent can play `react` and `verify`, so CI checks that `verify` raises no false alarms on
+  correct answers (identical steps, tools and warnings across all 48 scenarios); `plan` and `reflect` need a model.
+- **Extraction** has its own labelled set and scoring (`python -m jobshop.extraction evaluate`; results in
+  [DESIGN.md](DESIGN.md#reading-orders-out-of-emails-phase-10)): field accuracy, invented values, abstention and false
+  alarms, reported separately because accuracy alone hides the failures that matter.

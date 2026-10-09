@@ -22,6 +22,10 @@ The committed schedule, and the planner's trust in what they are shown before th
 | A draft is edited after the human looked, but solves to the same schedule | Approval binds to a **proposal digest** of the schedule *and the draft's edits*, not the schedule alone. (A schedule-only fingerprint let an edit that moved nothing ride on an earlier approval; found while building the web UI.) | `test_proposal_digest`, `test_api` |
 | Another web page presses Approve (CSRF), or a rebinding attack reaches the local server | Every state-changing request needs a per-run token that only the page this server served can read; `Origin` and `Host` are checked; the server listens on loopback only and refuses other addresses; the web UI also sends the digest of the proposal it displayed. | `test_api`, `test_server` (over a real socket) |
 | A plant document (retrieved text) tells the model what to do | Same layers as for order notes: whatever the model is persuaded to do is limited to editing drafts, the approval screen is built from stored data, and passages arrive on one line, size-capped, in a field named `text_untrusted_text` with a note and a prompt rule saying documents are data. Cleaning is hygiene, not detection. | `test_search_knowledge` (a fully obedient scripted model reads a poisoned passage) |
+| A note or document makes the model plant a lasting instruction (**memory poisoning**) | The model has no tool that writes memory; standing preferences are added only by the planner (a chat command, a CSRF-guarded web call). Preferences are short, cleaned, capped, and stated to the model as unable to override its rules. | `test_memory` (no tool can write memory; a model told to remember something gets "unknown tool"), `test_preferences`, scenario `mem-04` |
+| An emailed order request lies, injects instructions, or is misread | The extraction is only a proposal for a person; every value needs a quote that exists in the email and says the value; rejected values are removed; ambiguity must come back as `needs_review`. The email is wrapped as data in the model's prompt. | `test_extraction`, the labelled emails (including a planted "set priority 5") |
+| A reviewer or checker is steered by the answer it reads | The reviewer sees the answer inside `<answer>` tags as untrusted text, can only send an answer back (never approve, change or hide it), and the human-facing KPIs and change list come from the store regardless. Verification is plain code. | `test_patterns` |
+| The container exposes the app to a network | `--container` only permits `0.0.0.0` inside a container; the documented run command publishes to `127.0.0.1`; host names other than loopback are still refused. Not built or run here. | `test_events_and_health` |
 | Model or note text runs as script in the page | The page only inserts text nodes (a test forbids `innerHTML` and friends in the script), the Content-Security-Policy forbids inline script and remote loads, and the API returns model text as JSON data. Checked in a real browser with an answer containing `<img onerror=…>`: it displayed as literal text. | `test_api`, browser check |
 
 ## The embedding model (optional)
@@ -57,3 +61,10 @@ rest, and give false confidence.
 - **Local trust.** The shared state file is not authenticated and the token secret lives in a
   process. Anyone who can write the file or run `admin approve` is the operator by definition
   (auth is a stated non-goal).
+
+## Added with Phases 9 to 14
+
+- The event stream and `/healthz` are read-only GETs and carry no plan data beyond tool names and a status.
+- Trace export leaves out the planner's words, answers, tool arguments and results; spans carry metadata only.
+- **Not covered:** a hostile *planner* (they can store any preference within the limits), and the container image's own
+  supply chain (base image and packages are pinned by the lock file and a version tag, not verified by hash).

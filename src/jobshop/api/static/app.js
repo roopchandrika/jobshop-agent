@@ -102,7 +102,19 @@ async function sendMessage(text) {
   }
 }
 
-async function followTurn(turnId) {
+// Progress arrives as Server-Sent Events. If the stream cannot be used, or breaks, fall back to polling.
+function followTurn(turnId) {
+  if (!("EventSource" in window)) return pollTurn(turnId);
+  return new Promise((resolve) => {
+    const seen = [];
+    const source = new EventSource(`/api/chat/${turnId}/events`);
+    source.addEventListener("progress", (e) => { seen.push(JSON.parse(e.data).tool); setBusy(true, seen); });
+    source.addEventListener("done", () => { source.close(); resolve(refresh()); });
+    source.onerror = () => { source.close(); resolve(pollTurn(turnId)); };
+  });
+}
+
+async function pollTurn(turnId) {
   for (;;) {
     const turn = await api(`/api/chat/${turnId}`);
     setBusy(turn.status === "running", turn.progress);
@@ -340,6 +352,33 @@ async function renderCharts() {
   renderChart($("draft-chart"), draft, true);
 }
 
+// ---------------------------------------------------------------- standing preferences (the planner's long-term memory)
+
+function renderPreferences() {
+  const list = $("prefs-list");
+  clear(list);
+  const items = state.preferences || [];
+  for (const p of items) {
+    list.append(h("li", {}, h("span", {}, p.text),
+      h("button", { type: "button", "aria-label": `Forget preference: ${p.text}`, onclick: () => changePreferences("/api/preferences/forget", { id: p.id }) }, "Forget")));
+  }
+  $("prefs-count").textContent = items.length ? `(${items.length})` : "";
+}
+
+async function changePreferences(path, body) {
+  const box = $("prefs-error");
+  try {
+    state.preferences = (await api(path, { body })).preferences;
+    box.hidden = true;
+    renderPreferences();
+    return true;
+  } catch (e) {
+    box.textContent = e.message;
+    box.hidden = false;
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------- page
 
 function renderHeader() {
@@ -352,6 +391,7 @@ function renderHeader() {
 async function refresh(afterDecision = false) {
   state = await api("/api/state");
   renderTranscript();
+  renderPreferences();
   if (state.busy) {                                    // the agent owns the store; show progress and wait
     setBusy(true, state.progress);
     clearTimeout(pollTimer);
@@ -370,6 +410,11 @@ function init() {
   const chips = $("chips");
   for (const text of EXAMPLES) chips.append(h("button", { type: "button", onclick: () => { $("message").value = text; $("message").focus(); } }, text));
   $("composer").addEventListener("submit", (e) => { e.preventDefault(); sendMessage($("message").value); });
+  $("prefs-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = $("prefs-text");
+    if (input.value.trim() && await changePreferences("/api/preferences", { text: input.value })) input.value = "";
+  });
   $("message").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage($("message").value); }
   });

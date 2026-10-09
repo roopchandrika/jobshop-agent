@@ -32,6 +32,11 @@ reports it; `cached` is the input read back from the cache.)
 | `tool_call` | `step`, `tool`, `arguments`, `is_error`, `result` (in full), `latency_ms` |
 | `turn_end` | `status`, `steps`, token totals (including `cache_read_tokens` and `cache_write_tokens`), `cost_usd`, `llm_ms`, `tool_ms`, `wall_ms` |
 | `api_error`, `tool_exception`, `dropped_block` | the unhappy paths, with how long a failed call took |
+| `plan`, `plan_invalid`, `plan_adherence` | pattern `plan`: the plan, or that it was unusable, and how the actual tool calls compared (missing, unplanned, in order) |
+| `claims_check`, `critique` | patterns `verify` and `reflect`: the figures no tool returned, and the reviewer's verdict, each with the revision number |
+| `history_compacted` | the conversation was shortened: estimated tokens before and after, results cleared, turns dropped |
+
+`turn_start` also records the agent `pattern`, and every `llm_call` records its `purpose` (`agent`, `plan` or `critic`) so extra calls can be told apart.
 
 Things worth knowing:
 
@@ -106,3 +111,17 @@ judge. Output goes to `evals/results/<run>/`: `comparison.md` (the side-by-side)
 
 Dashboards, OpenTelemetry export, and MCP-server tracing (the MCP path makes no model calls, so there
 are no tokens to count). Each is a reasonable next step; none is needed to answer the two questions above.
+
+## Sending traces to a tracing tool
+
+```bash
+uv run python -m jobshop.agent.trace_export logs/traces/20260105-120000.jsonl -o spans.json
+```
+
+Writes OpenTelemetry spans in OTLP/JSON (the body an OTLP/HTTP endpoint accepts at `/v1/traces`), with no new dependency.
+One turn is one trace; under it, one span per model call (start time worked back from the recorded latency, model, token
+counts, cache tokens, cost, purpose) and one per tool call (name, duration, error status). A failed API call, a failing
+tool and a turn that never finished are error spans. Ids are derived from the session and turn, so exporting twice gives the
+same ids. **Only metadata is exported**: not the planner's words, the model's answers, tool arguments or tool results.
+Checked against the OTLP JSON structure by tests; not loaded into a real backend. See `docs/DESIGN.md` for the other
+production pieces (health check, streamed progress, container, load test).

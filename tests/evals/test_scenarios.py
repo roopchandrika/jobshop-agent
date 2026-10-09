@@ -6,8 +6,8 @@ from jobshop.evals.scenario import CATEGORIES, EDIT_TOOLS, Expect, Scenario, loa
 from tests.evals.conftest import EVALS
 
 
-def test_the_suite_has_35_to_45_scenarios_covering_every_category(scenarios):
-    assert 35 <= len(scenarios) <= 45
+def test_the_suite_has_35_to_60_scenarios_covering_every_category(scenarios):
+    assert 35 <= len(scenarios) <= 60
     by_category = {c: [s for s in scenarios.values() if s.category == c] for c in CATEGORIES}
     assert all(len(v) >= 3 for v in by_category.values()), {c: len(v) for c, v in by_category.items()}
 
@@ -113,3 +113,17 @@ def test_the_tight_shop_really_is_tighter_than_the_default(shops):
     assert len(tight.orders) > len(default.orders) and len(tight.machines) == len(default.machines)
     slack = lambda n: min(o.due - o.completion for o in compute_kpis(*shops[n]).orders)  # noqa: E731
     assert slack("tight") <= 0 < slack("default")
+
+
+def test_preferences_are_bounded_like_the_memory_they_stand_in_for():
+    base = {"id": "x", "category": "memory", "description": "d", "request": "r", "expect": {"outcome": "no_action"}}
+    assert Scenario.model_validate({**base, "preferences": ["short and sweet"]}).preferences == ["short and sweet"]
+    for bad in ([""], ["   "], ["x" * 201], ["p"] * 11):
+        with pytest.raises(ValidationError, match="preferences"):
+            Scenario.model_validate({**base, "preferences": bad})
+
+
+def test_the_memory_scenarios_set_preferences_and_one_checks_that_a_note_cannot_write_memory(scenarios):
+    memory = [s for s in scenarios.values() if s.category == "memory"]
+    assert len(memory) >= 4 and sum(bool(s.preferences) for s in memory) >= 3
+    assert any(s.poison and not s.preferences for s in memory)

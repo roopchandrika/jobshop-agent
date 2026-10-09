@@ -28,13 +28,17 @@ from typing import Any, Literal
 import anthropic
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from jobshop.agent.patterns import (
+    PATTERNS, PLAN_RULES, PLAN_TOOL, REVIEW_TOOL, Plan, critic_request, evidence_facts, harness_facts, parse_plan, parse_review,
+    plan_adherence, plan_block, plan_spec, review_message, unverified_figures, verify_message,
+)
 from jobshop.agent.pricing import Prices
 from jobshop.agent.trace import TRACE_VERSION, Tracer
 from jobshop.tools.errors import ToolError
 from jobshop.tools.functions import DraftId
 from jobshop.tools.outcome import draft_outcome
 from jobshop.tools.registry import ToolRegistry
-from jobshop.tools.views import Goal, KPIView
+from jobshop.tools.views import Goal, KPIView, fmt
 
 SUBMIT = "submit_response"
 
@@ -96,10 +100,25 @@ class AgentConfig:
     # Mark the conversation so far as cacheable: each model call then re-reads the system prompt, the
     # tool definitions and earlier steps at a fraction of the price instead of paying for them again.
     prompt_caching: bool = True
+    # Short-term memory: when the conversation's estimated size passes this, old tool results are cleared (and, if need be,
+    # the oldest turns dropped). None switches it off. See agent/history.py.
+    history_token_limit: int | None = 40_000
+    history_keep_turns: int = 2   # this many latest turns are never touched
+    # How the agent is organised around the model: react (default), plan, verify, reflect, or several joined with '+'.
+    # See agent/patterns.py. 'verify' and 'reflect' may send an answer back this many times before delivering it with a warning.
+    pattern: str = "react"
+    max_revisions: int = 1
 
     def __post_init__(self) -> None:
+        unknown = set(self.patterns) - set(PATTERNS)
+        if unknown or not self.patterns:
+            raise ValueError(f"unknown pattern {self.pattern!r}; choose from {', '.join(PATTERNS)}, joined with + to combine")
         if self.max_cost_usd is not None and None in (self.price_input_per_mtok, self.price_output_per_mtok):
             raise ValueError("a cost budget needs both token prices (input and output per million tokens)")
+
+    @property
+    def patterns(self) -> frozenset[str]:
+        return frozenset(p.strip() for p in self.pattern.lower().split("+") if p.strip())
 
     @property
     def prices(self) -> Prices | None:
@@ -144,13 +163,17 @@ def run_turn(
     tracer = tracer or Tracer()
     start_len = len(messages)
     messages.append({"role": "user", "content": user_text})
-    tracer.event("turn_start", trace_version=TRACE_VERSION, model=config.model, user_text=user_text)
+    tracer.event("turn_start", trace_version=TRACE_VERSION, model=config.model, user_text=user_text, pattern=config.pattern)
 
     tools = registry.api_specs() + [SUBMIT_SPEC]
-    steps = nudges = in_tokens = out_tokens = llm_ms = tool_ms = cache_read = cache_write = 0
-    last_text = ""
+    patterns = config.patterns
+    steps = nudges = revisions = in_tokens = out_tokens = llm_ms = tool_ms = cache_read = cache_write = 0
+    last_text = api_error_text = ""
     turn_began = time.perf_counter()
     prices = config.prices
+    system = system_prompt
+    plan: Plan | None = None
+    extra_warnings: list[str] = []
 
     def cost() -> float | None:
         return None if prices is None else prices.cost(in_tokens, out_tokens, cache_read, cache_write)
@@ -168,7 +191,7 @@ def run_turn(
         messages.append({"role": "assistant", "content": [{"type": "text", "text": f"(I stopped: {why}.)"}]})
         return finish(status, text=why)
 
-    while True:
+    def out_of_budget() -> TurnResult | None:
         if steps >= config.max_steps:
             return stop_politely("step_limit", f"reached the limit of {config.max_steps} model calls")
         spent = cost()
@@ -176,25 +199,32 @@ def run_turn(
             config.max_cost_usd is not None and spent is not None and spent >= config.max_cost_usd
         ):
             return stop_politely("budget_exceeded", "reached the token/cost budget for this request")
+        return None
 
+    def ask(*, system: str, tools: list[dict[str, Any]], history: list[dict[str, Any]], purpose: str,
+            tool_choice: dict[str, Any] | None = None, cache: bool = True, max_tokens: int | None = None):
+        """One model call with all the accounting (steps, tokens, cost, time, trace). Returns (response, content),
+        or None if the API failed (the failure is traced and ``api_error_text`` is set)."""
+        nonlocal steps, in_tokens, out_tokens, llm_ms, cache_read, cache_write, api_error_text
         steps += 1
         began = time.perf_counter()
+        kwargs: dict[str, Any] = dict(
+            model=config.model, max_tokens=max_tokens or config.max_output_tokens, system=system,
+            tools=_cacheable_tools(tools) if cache and config.prompt_caching else tools,
+            messages=_cacheable_messages(history) if cache and config.prompt_caching else history,
+        )
+        if tool_choice is not None:
+            kwargs["tool_choice"] = tool_choice
         try:
-            response = client.messages.create(
-                model=config.model,
-                max_tokens=config.max_output_tokens,
-                system=system_prompt,
-                tools=_cacheable_tools(tools) if config.prompt_caching else tools,
-                messages=_cacheable_messages(messages) if config.prompt_caching else messages,
-            )
+            response = client.messages.create(**kwargs)
         except anthropic.APIError as e:
             del messages[start_len:]  # nothing from this turn happened as far as the model knows
+            api_error_text = f"The model API failed: {type(e).__name__}: {e}"
             tracer.event("api_error", step=steps, error=f"{type(e).__name__}: {e}",
                          latency_ms=round((time.perf_counter() - began) * 1000))
-            return finish("api_error", text=f"The model API failed: {type(e).__name__}: {e}")
+            return None
         latency_ms = round((time.perf_counter() - began) * 1000)
         llm_ms += latency_ms
-
         step_read = getattr(response.usage, "cache_read_input_tokens", None) or 0
         step_write = getattr(response.usage, "cache_creation_input_tokens", None) or 0
         in_tokens += response.usage.input_tokens
@@ -202,19 +232,43 @@ def run_turn(
         cache_read += step_read
         cache_write += step_write
         content = _blocks_to_params(response.content, tracer)
-        messages.append({"role": "assistant", "content": content})
-        tool_uses = [b for b in content if b["type"] == "tool_use"]
-        texts = [b["text"] for b in content if b["type"] == "text"]
-        last_text = "\n".join(texts) or last_text
+        calls = [b for b in content if b["type"] == "tool_use"]
         tracer.event(
             "llm_call", step=steps, model=config.model, response_id=getattr(response, "id", None),
-            stop_reason=response.stop_reason,
+            stop_reason=response.stop_reason, purpose=purpose,
             input_tokens=response.usage.input_tokens, output_tokens=response.usage.output_tokens,
             cache_read_tokens=step_read, cache_write_tokens=step_write,
             latency_ms=latency_ms,
             step_cost_usd=None if prices is None else prices.cost(response.usage.input_tokens, response.usage.output_tokens, step_read, step_write),
-            total_cost_usd=cost(), text=texts, tool_calls=[b["name"] for b in tool_uses],
+            total_cost_usd=cost(), text=[b["text"] for b in content if b["type"] == "text"], tool_calls=[b["name"] for b in calls],
         )
+        return response, content
+
+    # -- pattern: plan. One forced call before acting; the plan guides this turn only and is not stored in the history. ---------
+    if "plan" in patterns:
+        planned = ask(system=system_prompt + PLAN_RULES, tools=[plan_spec(registry.names() + [SUBMIT])], history=messages,
+                      purpose="plan", tool_choice={"type": "tool", "name": PLAN_TOOL})
+        if planned is None:
+            return finish("api_error", text=api_error_text)
+        call = next((b for b in planned[1] if b["type"] == "tool_use" and b["name"] == PLAN_TOOL), None)
+        plan = parse_plan(call["input"]) if call else None
+        if plan is None:
+            tracer.event("plan_invalid")           # carry on without one: a plan is a help, not a gate
+        else:
+            system = system_prompt + plan_block(plan)
+            tracer.event("plan", steps=[s.model_dump() for s in plan.steps])
+
+    while True:
+        if (stop := out_of_budget()) is not None:
+            return stop
+
+        got = ask(system=system, tools=tools, history=messages, purpose="agent")
+        if got is None:
+            return finish("api_error", text=api_error_text)
+        response, content = got
+        messages.append({"role": "assistant", "content": content})
+        tool_uses = [b for b in content if b["type"] == "tool_use"]
+        last_text = "\n".join(b["text"] for b in content if b["type"] == "text") or last_text
 
         if not tool_uses:
             if nudges >= config.max_nudges:
@@ -228,33 +282,76 @@ def run_turn(
         truncated = response.stop_reason == "max_tokens"
         results: list[dict[str, Any]] = []
         payload: AnswerPayload | None = None
+        submit_block: dict[str, Any] | None = None
+        submit_at = -1
         for block in tool_uses:
             if truncated:
                 results.append(_result(block, "Your response was cut off, so this call was not run. Retry with less text.", True))
             elif block["name"] == SUBMIT:
                 payload, result = _handle_submit(block, alone=len(tool_uses) == 1)
+                if payload is not None:
+                    submit_block, submit_at = block, len(results)
                 results.append(result)
             else:
                 result, took_ms = _run_tool(registry, block, tracer, steps)
                 results.append(result)
                 tool_ms += took_ms
+
+        outcome = draft_outcome(registry.ctx, payload.draft_id) if payload is not None else None
+        if payload is not None and outcome is not None and ("verify" in patterns or "reflect" in patterns):
+            # -- patterns: verify, reflect. Check the answer before the planner sees it; send it back at most ``max_revisions`` times.
+            committed = registry.ctx.store.committed
+            problem: str | None = None
+            kept: list[str] = []
+            if "verify" in patterns:
+                figures = unverified_figures(payload.summary, evidence_facts(messages, fmt(committed.instance, committed.instance.now)))
+                tracer.event("claims_check", figures=figures, revision=revisions)
+                if figures:
+                    problem = verify_message(figures, revisions + 1, config.max_revisions)
+                    kept.append(f"The answer quotes figure(s) that no tool returned: {', '.join(figures)}.")
+            if problem is None and "reflect" in patterns and steps < config.max_steps:
+                request = critic_request(payload.summary, harness_facts(messages[start_len:], outcome))
+                reviewed = ask(**{k: request[k] for k in ("system", "tools", "tool_choice")}, history=request["messages"],
+                               purpose="critic", cache=False, max_tokens=min(config.max_output_tokens, 600))
+                if reviewed is None:
+                    return finish("api_error", text=api_error_text)
+                call = next((b for b in reviewed[1] if b["type"] == "tool_use" and b["name"] == REVIEW_TOOL), None)
+                review = parse_review(call["input"]) if call else None
+                tracer.event("critique", ok=None if review is None else review.ok,
+                             problems=[] if review is None else review.problems, revision=revisions)
+                if review is not None and not review.ok:
+                    problem = review_message(review.problems, revisions + 1, config.max_revisions)
+                    kept.append("A reviewer flagged: " + "; ".join(review.problems))
+            if problem is not None:
+                if revisions < config.max_revisions:
+                    revisions += 1
+                    assert submit_block is not None
+                    results[submit_at] = _result(submit_block, problem, True)
+                    payload = None
+                else:
+                    extra_warnings += kept              # out of revisions: deliver it, but say so beside the answer
+
         messages.append({"role": "user", "content": results})
 
         if payload is not None:
-            outcome = draft_outcome(registry.ctx, payload.draft_id)
+            assert outcome is not None
             final = FinalResponse(
                 **payload.model_dump(),
                 changes_made=outcome.changes,
                 kpi_before=outcome.kpi_before,
                 kpi_after=outcome.kpi_after,
                 needs_approval=outcome.needs_approval,
-                warnings=outcome.warnings,
+                warnings=[*outcome.warnings, *extra_warnings],
                 goal=outcome.goal,
             )
             recap = final.clarifying_question or final.summary
             if payload.draft_id:
                 recap += f" (Proposal is in draft {payload.draft_id}.)"
             messages.append({"role": "assistant", "content": [{"type": "text", "text": recap}]})
+            if plan is not None:
+                actual = [b["name"] for m in messages[start_len:] if m["role"] == "assistant" and isinstance(m["content"], list)
+                          for b in m["content"] if b.get("type") == "tool_use" and b["name"] != SUBMIT]
+                tracer.event("plan_adherence", **plan_adherence([s.tool for s in plan.steps if s.tool != SUBMIT], actual))
             return finish("answered", final=final)
 
 

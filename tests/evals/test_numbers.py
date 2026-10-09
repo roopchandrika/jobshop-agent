@@ -1,6 +1,6 @@
 import pytest
 
-from jobshop.evals.numbers import extract
+from jobshop.agent.claims import extract
 
 
 def numbers(text):

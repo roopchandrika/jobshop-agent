@@ -15,7 +15,7 @@ from collections import Counter
 from jobshop.core.models import Instance
 from jobshop.core.reschedule import plan_reschedule
 from jobshop.core.validator import validate_schedule
-from jobshop.evals.numbers import Facts, extract
+from jobshop.agent.claims import Facts, extract
 from jobshop.evals.record import CheckResult, Run
 from jobshop.evals.scenario import Changes, Downtime, RushOrder
 from jobshop.tools.errors import ToolError

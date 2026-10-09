@@ -13,6 +13,7 @@ import uvicorn
 from dotenv import load_dotenv
 
 from jobshop.agent.cli import ConfigError, agent_config_from_env, build_context
+from jobshop.agent.memory import PreferenceError, preferences_from_env
 from jobshop.api.app import LOOPBACK_HOSTS, create_app
 from jobshop.core.generator import GeneratorSettings
 from jobshop.core.solver import SolverConfig
@@ -47,6 +48,9 @@ def _shop_context(args: argparse.Namespace, solver_config: SolverConfig) -> Tool
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m jobshop.api", description=__doc__.splitlines()[0])
     parser.add_argument("--host", default="127.0.0.1", help="must be a loopback address: there is no login")
+    parser.add_argument("--container", action="store_true",
+                        help="allow --host 0.0.0.0, for use INSIDE a container only; publish the port to loopback on the host: "
+                             "docker run -p 127.0.0.1:8000:8000 ...")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--fixture", type=Path, default=DEFAULT_FIXTURE)
     parser.add_argument("--generate", action="store_true", help="ignore the fixture and generate a new random shop")
@@ -58,8 +62,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--trace-dir", type=Path, default=Path("logs/traces"))
     args = parser.parse_args(argv)
 
-    if args.host not in LOOPBACK_HOSTS:
-        print(f"Refusing to listen on {args.host}: this app has no login, so it only runs on 127.0.0.1 / localhost.", file=sys.stderr)
+    if args.host not in LOOPBACK_HOSTS and not (args.container and args.host == "0.0.0.0"):
+        print(f"Refusing to listen on {args.host}: this app has no login, so it only runs on 127.0.0.1 / localhost "
+              "(inside a container, --container --host 0.0.0.0 is allowed, with the port published to loopback only).", file=sys.stderr)
         return 2
 
     load_dotenv()
@@ -80,7 +85,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Configuration error: {e}", file=sys.stderr)
         return 2
     trace = args.trace_dir / f"api-{datetime.now():%Y%m%d-%H%M%S}.jsonl"
-    app = create_app(ctx, client, config, tracer_path=trace)
+    try:
+        preferences = preferences_from_env(os.environ)
+    except PreferenceError as e:
+        print(f"Configuration error: {e}", file=sys.stderr)
+        return 2
+    app = create_app(ctx, client, config, tracer_path=trace, preferences=preferences)
     print(f"Open http://{args.host}:{args.port}   (trace: {trace})")
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     return 0

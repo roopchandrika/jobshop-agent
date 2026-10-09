@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 
 from jobshop.agent.conversation import Conversation
 from jobshop.agent.loop import AgentConfig, FinalResponse, TurnResult
+from jobshop.agent.memory import PreferenceError, PreferenceStore, preferences_from_env
 from jobshop.agent.trace import Tracer
 from jobshop.core.generator import GeneratorSettings, generate_instance
 from jobshop.core.kpis import compute_kpis
@@ -35,6 +36,7 @@ from jobshop.tools.text import terminal_safe
 
 HELP = """Type a request, e.g. "Machine M4 is down from 14:00 to 17:00 today and order O-112 is now urgent."
 Commands:  /state  show the live plan   /clock YYYY-MM-DD HH:MM  advance the shop clock
+           /remember <text>  keep a standing preference   /forget <n>  drop one   /prefs  list them
            /help   this message         /quit  leave"""
 
 
@@ -61,10 +63,13 @@ def agent_config_from_env(env: Mapping[str, str]) -> AgentConfig:
         ("max_cost_usd", "JOBSHOP_MAX_COST_USD", float),
         ("price_input_per_mtok", "JOBSHOP_PRICE_INPUT_PER_MTOK", float),
         ("price_output_per_mtok", "JOBSHOP_PRICE_OUTPUT_PER_MTOK", float),
+        ("history_token_limit", "JOBSHOP_HISTORY_TOKENS", int),
     ]:
         value = number(name, cast)
         if value is not None:
             kwargs[key] = value
+    if env.get("JOBSHOP_PATTERN", "").strip():
+        kwargs["pattern"] = env["JOBSHOP_PATTERN"].strip()
     try:
         return AgentConfig(model=model, **kwargs)
     except ValueError as e:
@@ -93,9 +98,10 @@ class ChatSession:
         tracer: Tracer | None = None,
         out: Callable[[str], None] = print,
         ask: Callable[[str], str] = input,
+        preferences: PreferenceStore | None = None,
     ) -> None:
         self.ctx = ctx
-        self.conversation = Conversation(client, ctx, config, tracer)
+        self.conversation = Conversation(client, ctx, config, tracer, preferences)
         # Everything shown to the planner passes through terminal_safe, whatever its source: a
         # model's summary (or a note it echoed) must not be able to redraw the approval screen.
         self.out: Callable[[str], None] = lambda text: out(terminal_safe(text))
@@ -178,9 +184,27 @@ class ChatSession:
                      f"all orders done at {kpis.all_orders_done_at}, mean utilization {kpis.mean_utilization_pct}%")
         elif name == "/clock":
             self._set_clock(arg.strip())
+        elif name in ("/remember", "/forget", "/prefs"):
+            self._memory_command(name, arg.strip())
         else:
             self.out(f"Unknown command {name}. Type /help.")
         return True
+
+    def _memory_command(self, name: str, arg: str) -> None:
+        """Standing preferences. Only the planner can change them, here; the model has no tool for it."""
+        prefs = self.conversation.preferences
+        try:
+            if name == "/remember":
+                item = prefs.add(arg)
+                self.out(f"Remembered as preference {item.id}. It applies from the next message.")
+            elif name == "/forget":
+                item = prefs.remove(int(arg))
+                self.out(f"Forgot preference {item.id}: {item.text}")
+        except ValueError as e:   # PreferenceError, or int() on something that is not a number
+            self.out(f"Not done: {e}" if isinstance(e, PreferenceError) else "Use /forget <number>, with a number from /prefs.")
+            return
+        items = prefs.list()
+        self.out("Standing preferences:" + ("" if items else " none") + "".join(f"\n  {p.id}. {p.text}" for p in items))
 
     def _set_clock(self, text: str) -> None:
         inst = self.ctx.store.committed.instance
@@ -229,7 +253,14 @@ def main(argv: list[str] | None = None) -> int:
         path=Path(args.trace_dir) / f"{datetime.now():%Y%m%d-%H%M%S}.jsonl",
         echo=(lambda r: print(f"  [trace] {r['event']} " + " ".join(f"{k}={v}" for k, v in r.items() if k in ('step', 'tool', 'stop_reason', 'tool_calls', 'is_error', 'latency_ms')))) if args.verbose else None,
     )
-    session = ChatSession(anthropic.Anthropic(), ctx, config, tracer)
+    try:
+        preferences = preferences_from_env(os.environ)
+    except PreferenceError as e:
+        print(f"Configuration error: {e}", file=sys.stderr)
+        return 2
+    session = ChatSession(anthropic.Anthropic(), ctx, config, tracer, preferences=preferences)
+    if preferences.list():
+        session.handle("/prefs")
     print(f"Trace: {tracer.path}\n{HELP}\n")
     session.handle("/state")
     try:

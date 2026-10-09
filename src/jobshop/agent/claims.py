@@ -1,5 +1,8 @@
 """Pulling the numbers, times and dates out of free text, so claims can be compared with evidence.
 
+Used in two places: the evals' ``numbers`` check (after the fact, on a finished run) and the ``verify`` agent pattern
+(during the turn, so an answer with a figure no tool returned can be sent back before the planner sees it).
+
 The agent is told to quote only numbers that tools returned. This module makes that checkable:
 what numbers does an answer contain, and does each one appear in something the model was shown?
 

@@ -10,7 +10,7 @@ and approves it.
 This is a portfolio project, built to learn AI engineering. The agent's tool-use loop is written by hand
 on the Anthropic SDK (no agent framework), and all data is synthetic.
 
-> **Status.** Built and tested: 898 automated tests, CI on every push. One real-model evaluation exists
+> **Status.** Built and tested: 1162 automated tests, CI on every push. One real-model evaluation exists
 > (29 scenarios, no judge: 22/29, every miss in one check that has since been narrowed). A judged, repeated
 > two-model comparison was started and stopped early to save API credit, so **no comparison has been
 > completed**. See [What is and isn't verified](#what-is-and-isnt-verified).
@@ -133,7 +133,7 @@ only for real chat and the evals; tests, the scripted demo and the reference-age
 ```bash
 uv sync                          # install
 cp .env.example .env             # then set ANTHROPIC_API_KEY and ANTHROPIC_MODEL (never commit .env)
-uv run pytest                    # about two minutes; 2 tests are skipped (they call the real API)
+uv run pytest                    # about five minutes; 5 tests are skipped (opt-in: 2 call the real API, 3 download a model)
 ```
 
 | What | Command |
@@ -149,6 +149,11 @@ uv run pytest                    # about two minutes; 2 tests are skipped (they 
 | Score the document search (no model, free) | `uv run python -m jobshop.evals retrieval --method all` (`dense` and `hybrid` need `uv sync --extra embeddings`) |
 | Record a real run once, replay it free | `... evals run --record DIR`, then `... evals run --replay DIR` |
 | Read a trace | `uv run python -m jobshop.agent.trace_report logs/traces/<file>.jsonl` |
+| Export a trace as OpenTelemetry spans | `uv run python -m jobshop.agent.trace_export logs/traces/<file>.jsonl -o spans.json` |
+| Score order extraction from emails (free baseline) | `uv run python -m jobshop.extraction evaluate` |
+| Compare agent patterns on one model | `... evals compare --model M --pattern react --pattern verify` (spends API credit) |
+| Load-test the web app (scripted demo, free) | `uv run python scripts/load_test.py --spawn` |
+| Container (**image not yet built or run**) | `docker build -t jobshop-agent .` then `docker run --rm -p 127.0.0.1:8000:8000 jobshop-agent` |
 
 The web UI starts from a committed fixture shop (`evals/shop.json`: 12 orders on 4 machines, one day; the evals also use a tighter 19-order shop), so
 it opens instantly. Without an API key it still shows the plan and chat is disabled. It listens on
@@ -168,7 +173,16 @@ it opens instantly. Without an API key it still shows the plan and chat is disab
   synthetic knowledge base, by keyword (default) or by meaning with a local embedding model (optional extra). Retrieval
   is scored on its own: embeddings find 6 of 6 hard paraphrases against 3 of 6 for keywords. A document is untrusted
   data like an order note.
-- **Evals:** 44 scenarios on two shops; checks read the system's state, not the model's wording; an LLM judge
+- **Memory:** a long conversation is kept inside its budget by clearing old tool results; standing preferences
+  ("I always want the earliest finish") are added **only by the planner**, never by the model, so a poisoned note
+  cannot plant a lasting instruction.
+- **Reading emails:** a rush-order email becomes a structured order whose every value must carry a quote that exists in
+  the email and says it; a rule-based baseline scores 0.68 exact on 22 labelled emails (the model extractor is written, not yet run).
+- **Agent patterns:** `react`, `plan`, `verify` (code checks every figure came from a tool) and `reflect` (a second
+  call reviews the answer), combinable and comparable in the evals; which is better is not measured yet.
+- **Running it:** health check, streamed progress (Server-Sent Events), a Dockerfile (not yet built), a load test, and
+  OpenTelemetry trace export.
+- **Evals:** 48 scenarios on two shops; checks read the system's state, not the model's wording; an LLM judge
   that must be a different model; a scripted reference agent; mutation testing of the guards and checks.
 - **Observability:** versioned JSONL traces with per-step tokens, cache use, latency and cost; a two-model
   comparison with confidence intervals.
@@ -181,11 +195,13 @@ Reasons, trade-offs and a glossary: [docs/DESIGN.md](docs/DESIGN.md). Threat mod
 | Verified | Not verified |
 |---|---|
 | The solver against an independent validator and recomputation | The LLM judge on a real model |
-| Tools, loop, approval, store and the MCP server over real stdio, by 898 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
+| Tools, loop, approval, store and the MCP server over real stdio, by 1162 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
 | The web API (CSRF, Origin, Host, CSP, approval fingerprint) over a real socket | Claude Desktop/Code connecting to the MCP server |
 | The UI in a real browser: chat, proposal, Approve, charts, dark mode, phone width | The Approve flow with a real model; screen readers; browsers other than one |
 | A real model on 29 scenarios, deterministic checks only (above) | The changes since then (goal option, caching, plant documents, new scenarios) over the full suite on a real model; whether a real model searches, cites and stays grounded, including declining to answer from a nearest-but-irrelevant passage |
 | Safety, eval and API code by mutation testing: guards broken on purpose, a test failed for each | A security audit: this is a local single-user app, not hardened for a network |
+| Memory, patterns and extraction logic with scripted models; the web layer under concurrent load (20 users: one chat accepted, 19 told to wait, no errors); the event stream live on a real socket | Any of those on a real model: whether stored preferences are followed, whether `verify`/`reflect`/`plan` help, how a model does on the emails |
+| Trace export against the OTLP JSON structure | The container image (never built: Docker was not running); trace export into a real tracing backend |
 
 **Limits:** one planner and one shop; state is in memory (web) or a JSON file (MCP), with no accounts or
 history; at the default size nothing is proven optimal in 30 s; setup times, labour and preemption are out
@@ -196,13 +212,14 @@ of scope. More in [docs/DESIGN.md](docs/DESIGN.md#known-limits).
 ```
 src/jobshop/core/        models, solver, validator, KPIs, change and reschedule rules   (no LLM)
 src/jobshop/tools/       store, approval tokens, tool functions, registry, human-only commit  (no LLM)
-src/jobshop/agent/       hand-written loop, prompts, conversation, traces, chat CLI
+src/jobshop/agent/       hand-written loop, patterns, memory, prompts, conversation, traces, chat CLI
 src/jobshop/mcp_server/  stdio MCP server and the human `admin` command
 src/jobshop/api/         FastAPI app and the web UI (static/)
 src/jobshop/evals/       scenarios, checks, judge, runner, comparison, record/replay, retrieval scoring, reference agent
 src/jobshop/knowledge/   chunking, keyword (BM25) and embedding search over the plant documents   (no LLM)
-scripts/                 demo_server.py: the web UI with a scripted stand-in for the model
-evals/                   two fixture shops, 44 scenarios (YAML), retrieval questions, results (gitignored)
+src/jobshop/extraction/  reading orders out of emails: schema, checks, rule-based baseline, model extractor, scoring
+scripts/                 demo_server.py (scripted model, real solver), load_test.py
+evals/                   two fixture shops, 48 scenarios (YAML), retrieval questions, labelled emails, results (gitignored)
 knowledge/               synthetic plant documents the agent can search (markdown)
 tests/                   mirrors src/
 docs/                    ROADMAP, DESIGN, EVALS, SAFETY, OBSERVABILITY, MCP

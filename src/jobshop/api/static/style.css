@@ -91,6 +91,14 @@ section, .tile { background: var(--surface-1); border: 1px solid var(--border); 
 .msg .warn { display: block; margin-top: 4px; color: var(--ink-2); }
 .msg .use { display: block; margin-top: 4px; font-size: 12px; color: var(--ink-2); }
 .activity { margin: 0; min-height: 1.4em; color: var(--ink-2); }
+.prefs { border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 13px; }
+.prefs summary { cursor: pointer; font-weight: 600; }
+.prefs .hint { margin: 6px 0; color: var(--ink-2); font-size: 12px; }
+.prefs-list { margin: 0 0 6px; padding: 0; list-style: none; }
+.prefs-list li { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 2px 0; }
+.prefs-list button { font-size: 12px; padding: 1px 8px; }
+.prefs-form { display: flex; gap: 6px; }
+.prefs-form input { flex: 1; min-width: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chips button { font-size: 12px; padding: 3px 8px; }
 #composer { display: grid; gap: 8px; }

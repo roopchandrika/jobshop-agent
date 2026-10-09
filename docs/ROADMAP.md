@@ -29,7 +29,11 @@ the code on purpose.
 | after | First real-model eval (29 scenarios, no judge): 22/29, all misses in the numbers check | done | see [Honest status](#honest-status) |
 | after | Numbers-check scope, slack/count fields, `earliest_finish` goal, prompt caching, CI, two shops | done and tested; not yet measured on the full suite with a real model | `ef202e6`, `3998768` |
 | 8a | Plant documents: chunking, BM25 search, `search_knowledge` tool, retrieval evaluation, 5 scenarios; record/replay for evals | done, reviewed | `492da16` |
-| 8b | Embeddings: dense and hybrid retrieval (optional `fastembed` extra), cache, three-way retrieval comparison, off-topic separation | done and tested; **awaiting review**; not yet measured with a real model in the agent loop | this commit |
+| 8b | Embeddings: dense and hybrid retrieval (optional `fastembed` extra), cache, three-way retrieval comparison, off-topic separation | done, reviewed | `f530be5` |
+| 9 | Memory: history compaction (short-term) and planner-only standing preferences (long-term), 4 scenarios | done and tested; **awaiting review**; not run on a real model | this commit |
+| 10 | Email order extraction: forced schema, evidence checks, abstention, rule-based baseline, 22 labelled emails | done and tested; baseline measured (0.68 exact); **the model extractor is written but never run** | this commit |
+| 11 | Agent patterns: plan, verify, reflect (combinable), pattern comparison in the evals | done and tested; **quality of each pattern unmeasured** (needs paid runs) | this commit |
+| 14 | Production basics: health check, streamed progress (SSE), Dockerfile, load test, OpenTelemetry trace export | done and tested; **the image was never built** (Docker was not running) | this commit |
 | next | Judged, repeated two-model comparison (Sonnet vs Opus, judge Fable) | **started, stopped at 46 of 234 runs to save credit; no report** | see [What is next](#what-is-next) |
 
 ## Phase by phase
@@ -123,7 +127,7 @@ the code on purpose.
 | Phase 5 | 527 |
 | Phase 6 | 592 |
 | Phase 7 | 663 |
-| now | **898** (5 more are opt-in: 2 call the real API, 3 download an embedding model) |
+| now | **1162** (5 more are opt-in: 2 call the real API, 3 download an embedding model) |
 
 About 6,300 lines of source, 5,800 lines of tests.
 

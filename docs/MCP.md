@@ -75,6 +75,8 @@ edited after the request. `clock` makes existing drafts and requests stale on pu
   server also offers `search_knowledge` and adds a short section about it to its instructions. It is opt-in here
   because the server's working folder is chosen by the client, so a relative default would silently find nothing.
   Leave the variable out and the tool simply does not exist.
+- **Memory.** Standing preferences and history compaction belong to the chat and web front ends; over MCP the client
+  owns the conversation, so neither applies there.
 - **Search method.** Add `"JOBSHOP_RETRIEVER": "dense"` to `env` for search by meaning (needs `uv sync --extra embeddings`
   in the checkout the `python.exe` belongs to; the default is keyword search).
 - **Two goals.** `reschedule` takes `goal`: `fewest_moves` (default) or `earliest_finish`. The approval review

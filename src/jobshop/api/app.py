@@ -17,6 +17,7 @@ sensitive endpoint in the system, so it is protected the way a bank transfer for
 from __future__ import annotations
 
 import hmac
+import json
 import logging
 import secrets
 import threading
@@ -26,13 +27,14 @@ from typing import Annotated, Any
 from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from jobshop.agent.conversation import Conversation
 from jobshop.agent.loop import AgentConfig, TurnResult
+from jobshop.agent.memory import PreferenceError, PreferenceStore
 from jobshop.agent.trace import Tracer
 from jobshop.api import views as web
 from jobshop.core.kpis import compute_kpis
@@ -66,32 +68,60 @@ class RejectIn(_In):
     draft_id: DraftId
 
 
+class PreferenceIn(_In):
+    text: str = Field(min_length=1, max_length=1000)   # the store enforces the real (shorter) limit and says why
+
+
+class ForgetIn(_In):
+    id: int = Field(strict=True, ge=1, le=10**9)   # a real number: not "1", not true, not 1.0
+
+
+HEARTBEAT_SECONDS = 15.0   # how often an idle event stream sends a comment, so proxies and browsers keep the connection
+
+
 @dataclass
 class Turn:
     id: int
     status: str = "running"  # running | done
     progress: list[str] = field(default_factory=list)  # tool names as they run, for the UI's activity line
     error: str | None = None
+    # Anyone waiting for news about this turn (the event stream) sleeps on this and is woken by every change.
+    changed: threading.Condition = field(default_factory=threading.Condition, repr=False, compare=False)
+
+    def add_progress(self, label: str) -> None:
+        with self.changed:
+            self.progress.append(label)
+            self.changed.notify_all()
+
+    def finish(self) -> None:
+        with self.changed:
+            self.status = "done"
+            self.changed.notify_all()
 
 
 class WebState:
     """Everything the API remembers between requests. ``lock`` serialises all use of the store."""
 
-    def __init__(self, ctx: ToolContext, client: Any, config: AgentConfig, tracer_path: Path | None) -> None:
+    def __init__(
+        self, ctx: ToolContext, client: Any, config: AgentConfig, tracer_path: Path | None,
+        preferences: PreferenceStore | None = None,
+    ) -> None:
         self.ctx, self.config = ctx, config
+        self.preferences = preferences if preferences is not None else PreferenceStore()
         self.lock = threading.Lock()
         self.transcript: list[dict[str, Any]] = []
         self.turn: Turn | None = None
         self._turn_counter = 0
         self.proposal_draft: str | None = None  # the draft the last answer asked the planner to approve
         self.conversation = (
-            Conversation(client, ctx, config, Tracer(path=tracer_path, echo=self._on_event)) if client is not None else None
+            Conversation(client, ctx, config, Tracer(path=tracer_path, echo=self._on_event), self.preferences)
+            if client is not None else None
         )
 
     def _on_event(self, record: dict[str, Any]) -> None:
         turn = self.turn
         if turn is not None and turn.status == "running" and record["event"] == "tool_call":
-            turn.progress.append(record["tool"] + (" (failed)" if record["is_error"] else ""))
+            turn.add_progress(record["tool"] + (" (failed)" if record["is_error"] else ""))
 
     def start_turn(self) -> Turn:
         self._turn_counter += 1
@@ -120,8 +150,9 @@ def create_app(
     *,
     tracer_path: Path | None = None,
     allowed_hosts: tuple[str, ...] = LOOPBACK_HOSTS,
+    preferences: PreferenceStore | None = None,
 ) -> FastAPI:
-    state = WebState(ctx, client, config, tracer_path)
+    state = WebState(ctx, client, config, tracer_path, preferences)
     csrf_token = secrets.token_urlsafe(32)
     app = FastAPI(title="Job-shop scheduling assistant", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.web = state
@@ -159,6 +190,11 @@ def create_app(
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
+    @app.get("/healthz")
+    def healthz() -> dict[str, Any]:
+        """For a container orchestrator or a load balancer: is the process up and able to answer? Takes no lock, shows no data."""
+        return {"status": "ok", "model_configured": state.conversation is not None}
+
     # -- reading ------------------------------------------------------------------------------------
 
     @app.get("/api/state")
@@ -167,6 +203,7 @@ def create_app(
             "model": config.model if state.conversation else None,
             "model_configured": state.conversation is not None,
             "transcript": list(state.transcript),
+            "preferences": [{"id": p.id, "text": p.text} for p in state.preferences.list()],
         }
         if not state.lock.acquire(timeout=0.25):  # the agent is mid-turn and owns the store
             return {**base, "busy": True, "progress": list(state.turn.progress) if state.turn else []}
@@ -214,7 +251,7 @@ def create_app(
                 turn.error = "Something went wrong running that request. See the server log."
                 state.transcript.append({"role": "assistant", "kind": "stopped", "text": turn.error})
             finally:
-                turn.status = "done"
+                turn.finish()
                 state.lock.release()
 
         threading.Thread(target=work, daemon=True, name=f"turn-{turn.id}").start()
@@ -226,6 +263,59 @@ def create_app(
         if turn is None or turn.id != turn_id:
             raise HTTPException(404, "unknown turn")
         return {"turn_id": turn.id, "status": turn.status, "progress": list(turn.progress), "error": turn.error}
+
+    # -- standing preferences (long-term memory): the planner writes, the model only reads ----------------------
+
+    def preference_list() -> dict[str, Any]:
+        return {"preferences": [{"id": p.id, "text": p.text} for p in state.preferences.list()]}
+
+    @app.post("/api/preferences", dependencies=[Depends(guard)])
+    def add_preference(body: PreferenceIn) -> dict[str, Any]:
+        try:
+            state.preferences.add(body.text)
+        except PreferenceError as e:
+            raise HTTPException(422, str(e)) from None
+        return preference_list()
+
+    @app.post("/api/preferences/forget", dependencies=[Depends(guard)])
+    def forget_preference(body: ForgetIn) -> dict[str, Any]:
+        try:
+            state.preferences.remove(body.id)
+        except PreferenceError as e:
+            raise HTTPException(404, str(e)) from None
+        return preference_list()
+
+    @app.get("/api/chat/{turn_id}/events")
+    def turn_events(turn_id: int, last_event_id: Annotated[str | None, Header()] = None) -> StreamingResponse:
+        """Server-Sent Events for one turn: a ``progress`` event as each tool runs, then ``done``.
+
+        Replaces polling /api/chat/{id}. Each progress event carries an ``id``; a browser that reconnects sends
+        ``Last-Event-ID`` and gets only what it missed. Read-only, so no CSRF token is needed (it changes nothing).
+        """
+        turn = state.turn
+        if turn is None or turn.id != turn_id:
+            raise HTTPException(404, "unknown turn")
+        try:
+            sent = max(0, int(last_event_id)) if last_event_id else 0
+        except ValueError:
+            sent = 0
+
+        def stream():
+            nonlocal sent
+            while True:
+                with turn.changed:
+                    idle = turn.changed.wait_for(lambda: len(turn.progress) > sent or turn.status == "done", timeout=HEARTBEAT_SECONDS)
+                    batch, done, error = turn.progress[sent:], turn.status == "done", turn.error
+                for label in batch:
+                    sent += 1
+                    yield f"id: {sent}\nevent: progress\ndata: {json.dumps({'tool': label, 'index': sent})}\n\n"
+                if done:
+                    yield f"event: done\ndata: {json.dumps({'status': 'done', 'error': error})}\n\n"
+                    return
+                if not idle:
+                    yield ": keep-alive\n\n"
+
+        return StreamingResponse(stream(), media_type="text/event-stream", headers={"X-Accel-Buffering": "no"})
 
     # -- the human decision ----------------------------------------------------------------------------
 

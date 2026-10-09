@@ -4,6 +4,9 @@ prompt to set, so the workflow and safety rules must travel with the server)."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
+from jobshop.agent.memory import preferences_prompt
 from jobshop.tools.functions import ToolContext
 from jobshop.tools.views import fmt
 
@@ -73,8 +76,8 @@ overtime). Mention such a point as something for the planner to allow for by han
 schedule's numbers."""
 
 
-def build_system_prompt(ctx: ToolContext) -> str:
-    """The chat agent's prompt, with the current plant clock."""
+def build_system_prompt(ctx: ToolContext, preferences: Sequence[str] = ()) -> str:
+    """The chat agent's prompt, with the current plant clock and the planner's standing preferences."""
     committed = ctx.store.committed
     inst = committed.instance
     now = inst.to_datetime(inst.now)
@@ -93,7 +96,7 @@ add_rush_order), then call reschedule ONCE. The edit tools do not solve.
 not invent a cause.
 4. Finish by calling submit_response exactly once, on its own, after you have all results.
 
-{_SAY_RULES}{chr(10) + chr(10) + _KNOWLEDGE if ctx.knowledge is not None else ''}"""
+{_SAY_RULES}{chr(10) + chr(10) + _KNOWLEDGE if ctx.knowledge is not None else ''}{preferences_prompt(list(preferences))}"""
 
 
 def server_instructions(knowledge: bool = False) -> str:

@@ -129,6 +129,8 @@ def _run(args: argparse.Namespace) -> int:
                 raise ConfigError("no judge model: set ANTHROPIC_JUDGE_MODEL or pass --judge-model (or --no-judge)")
             if judge_model == model:
                 raise ConfigError("the judge must be a different model from the one under test")
+        if args.pattern:
+            config = replace(config, pattern=args.pattern)   # a mistyped pattern is a configuration error, not a crash
         shops = _shops(args, scenarios)
         knowledge = _knowledge(args, scenarios)
     except (ConfigError, ValueError) as e:
@@ -184,8 +186,9 @@ def _compare(args: argparse.Namespace) -> int:
             base = agent_config_from_env({**env, "ANTHROPIC_MODEL": "demo"})
         else:
             names = args.model or [m for m in (os.environ.get("ANTHROPIC_MODEL"), os.environ.get("ANTHROPIC_COMPARE_MODEL")) if m]
-            if len(set(names)) < 2:
-                raise ConfigError("compare needs two different models: pass --model A --model B (or set ANTHROPIC_MODEL and ANTHROPIC_COMPARE_MODEL)")
+            patterns = list(dict.fromkeys(args.pattern or []))
+            if len(set(names)) < 2 and len(patterns) < 2:
+                raise ConfigError("compare needs two different models (--model A --model B) or one model with two patterns (--model A --pattern react --pattern verify)")
             if len(set(names)) != len(names):
                 raise ConfigError("the same model was given twice")
             _need_key()
@@ -201,7 +204,12 @@ def _compare(args: argparse.Namespace) -> int:
             if judge_model in names:
                 raise ConfigError(f"the judge ({judge_model}) must not be one of the models being compared")
             client = anthropic.Anthropic()
-            models = [ModelSpec(n, lambda s: client, prices.get(n)) for n in names]
+            if patterns:
+                for p in patterns:
+                    AgentConfig(model="x", pattern=p)   # a mistyped pattern is a configuration error now, not after a paid run starts
+                models = [ModelSpec(f"{n} [{p}]", lambda s: client, prices.get(n), model=n, pattern=p) for n in names for p in patterns]
+            else:
+                models = [ModelSpec(n, lambda s: client, prices.get(n)) for n in names]
             base = agent_config_from_env({**env, "ANTHROPIC_MODEL": names[0]})
         shops = _shops(args, scenarios)
         knowledge = _knowledge(args, scenarios)
@@ -289,6 +297,8 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--model", help="model under test (default: $ANTHROPIC_MODEL)")
     run.add_argument("--price", help="USD per million tokens as 'input,output', for cost numbers (default: $JOBSHOP_PRICE_*)")
     run.add_argument("--oracle", action="store_true", help="use the scripted reference agent: no API calls, tests the eval itself")
+    run.add_argument("--pattern", help="agent pattern: react (default), plan, verify, reflect, or several joined with + (e.g. plan+verify). "
+                     "The scripted reference agent can only play react and verify.")
     run.add_argument("--record", type=Path, metavar="DIR", help="save every model response under DIR so the run can be replayed for free")
     run.add_argument("--replay", type=Path, metavar="DIR", help="re-run from a recording made with --record: no API calls, no cost; "
                      "a scenario whose prompt, tools or tool results changed since is reported as a stale recording")
@@ -297,6 +307,8 @@ def main(argv: list[str] | None = None) -> int:
     compare = sub.add_parser("compare", help="run the same scenarios against two models and compare quality, cost and latency")
     _common(compare)
     compare.add_argument("--model", action="append", help="a model to compare; give it twice (default: $ANTHROPIC_MODEL and $ANTHROPIC_COMPARE_MODEL)")
+    compare.add_argument("--pattern", action="append", help="agent pattern to run each model with; repeat to compare patterns "
+                         "(react, plan, verify, reflect, or joined with +). One model and two patterns is a valid comparison.")
     compare.add_argument("--price", action="append", help="'MODEL=input,output' USD per million tokens; once per model, or cost shows n/a")
     compare.add_argument("--demo", action="store_true", help="compare two scripted agents (no API): shows the report, says nothing about models")
     compare.set_defaults(func=_compare)

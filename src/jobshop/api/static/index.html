@@ -18,6 +18,17 @@
       <div id="transcript" role="log" aria-live="polite" tabindex="0"></div>
       <p id="activity" class="activity" role="status" aria-live="polite"></p>
       <div id="chips" class="chips" aria-label="Example requests"></div>
+      <details id="prefs" class="prefs">
+        <summary>Standing preferences <span id="prefs-count"></span></summary>
+        <p class="hint">Things you always want the assistant to keep in mind. Only you can add or remove them; the assistant cannot.</p>
+        <ul id="prefs-list" class="prefs-list"></ul>
+        <form id="prefs-form" class="prefs-form">
+          <label for="prefs-text" class="sr-only">New standing preference</label>
+          <input id="prefs-text" type="text" maxlength="200" placeholder="e.g. I always want the earliest finish">
+          <button type="submit">Remember</button>
+        </form>
+        <p id="prefs-error" class="error" role="alert" hidden></p>
+      </details>
       <form id="composer">
         <label for="message" class="sr-only">Message to the assistant</label>
         <textarea id="message" rows="3" maxlength="2000" placeholder="Describe a disruption, e.g. “M2 is down from 11:00 to 14:00”"></textarea>
