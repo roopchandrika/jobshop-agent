@@ -1,5 +1,6 @@
 import json
 
+import anthropic
 import pytest
 
 from jobshop.agent.loop import AgentConfig
@@ -237,7 +238,7 @@ def test_one_models_environment_prices_never_leak_into_a_comparison(quiet, monke
     monkeypatch.setenv("JOBSHOP_PRICE_INPUT_PER_MTOK", "99")
     monkeypatch.setenv("JOBSHOP_PRICE_OUTPUT_PER_MTOK", "99")
     monkeypatch.setenv("JOBSHOP_MAX_COST_USD", "1")
-    monkeypatch.setattr(cli.anthropic, "Anthropic", lambda: object())
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: object())
     seen = {}
 
     def capture(scenarios, specs, base, *a, **k):
@@ -252,7 +253,7 @@ def test_one_models_environment_prices_never_leak_into_a_comparison(quiet, monke
 
 
 def test_run_accepts_prices_on_the_command_line(quiet, monkeypatch, tmp_path):
-    monkeypatch.setattr(cli.anthropic, "Anthropic", lambda: object())
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: object())
     seen = {}
     monkeypatch.setattr(cli, "run_suite", lambda scenarios, client_for, config, *a, **k: seen.update(config=config) or [])
     code = cli.main(["--evals-dir", str(EVALS), "run", "--model", "a", "--no-judge", "--price", "3,15", "--only", "q-01", "--out", str(tmp_path)])

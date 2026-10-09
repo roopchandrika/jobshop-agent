@@ -221,8 +221,8 @@ Building the tests found two bugs in the checks (below).
 
 ## Agent patterns (Phase 11)
 
-Four ways of organising the same model, tools and safety rules (`AgentConfig.pattern`, `JOBSHOP_PATTERN`, `--pattern`,
-combinable with `+`):
+Five ways of organising the same model, tools and safety rules (`AgentConfig.pattern`, `JOBSHOP_PATTERN`, `--pattern`,
+combinable with `+`; the fifth, `route`, has its own section below):
 
 | Pattern | What happens around the model calls | Extra model calls |
 |---|---|---|
@@ -273,4 +273,71 @@ check has no false alarms on correct answers) but not `plan` or `reflect`, which
   the single-planner design means a second message is refused by design.
 
 Still absent for real deployment: accounts and login, a database instead of in-memory state, background job queues,
-rate limiting, and a metrics endpoint.
+and a metrics endpoint. (A limit on turns per minute and hour was added in Phase 15, below.)
+
+## Multi-agent routing (Phase 12)
+
+A fifth pattern, `route` (combinable: `route+verify`), puts a **triage** in front of the agent. One forced call, made on a small
+cheap model if you like (`JOBSHOP_TRIAGE_MODEL` or `run --triage-model`, with its own prices), reads only the planner's own words
+and picks one of four routes:
+
+| Route | What happens | Model calls after the triage |
+|---|---|---|
+| `read` | a **reader** answers: it has the read tools (`get_schedule`, `list_orders`, `get_order`, `get_machine_status`, `search_knowledge`) and nothing that edits | the usual loop |
+| `plan` | the full agent, exactly as without routing | the usual loop |
+| `clarify` | the triage's own question goes to the planner; no agent runs | none |
+| `decline_commit` | a **fixed** refusal ("only you can approve and commit"); no agent runs, and nothing the model wrote reaches the planner | none |
+
+Why it is more than an organisational diagram. **Least privilege:** a reader that is asked to edit gets "unknown tool", the same
+as if it had never been offered, so a hostile note or document read while answering a question cannot turn into a draft (the red
+team measures this: see [SAFETY.md](SAFETY.md#red-team-measured-attack-success-phase-15)). **Isolation:** the triage never sees tool
+results, documents, earlier model text or system notices (`planner_context`), so nothing planted in the data can reach it. **Cost:**
+the cheap model sees about a sentence, not the 12 kB of tool descriptions.
+
+An unusable triage (not one of the four routes, extra fields, a `clarify` with no question, prose instead of the tool call) falls
+back to `plan`: a bad triage must not block the planner, and `plan` is the most capable route. This is logged as `route_invalid`.
+Every call is costed at **its own model's prices**, so a cheap triage model is not billed at the main model's rate; a separate triage
+model without prices is a configuration error when the main model has prices.
+
+What routing cannot do: it cannot tell which of the edits an editing agent makes were wanted. Evals check the route
+(`route:` on 28 scenarios; a wrong route fails the `tools` check, only under this pattern). **Whether routing is better on a real
+model is not measured**: the triage's accuracy, its saving and what a small model does with it all need a paid run.
+
+## Open models (Phase 13)
+
+The loop calls `client.messages.create(...)` and reads `content`, `usage` and `stop_reason`, so a second provider is an adapter,
+not a rewrite. `agent/providers.py` translates the same request to Ollama's `/api/chat` and the reply back, and sends a model
+whose name starts with `ollama:` there (`ollama:llama3.1`); every other name goes to Anthropic, so one run can mix them (a local model
+for the triage, a large one for the plan). An Anthropic key is needed only if some model in the run is an Anthropic model.
+
+What the adapter does not hide:
+
+- **No forced tool choice.** Ollama has none, so the adapter offers only that tool and says in the system prompt that it must be called.
+  A small model may still answer in prose; the loop already treats that as it treats any malformed answer (the triage falls back
+  to the full agent).
+- **No prompt caching**; cache fields are dropped. Local models cost nothing per token, so set prices to `0` if you want cost shown.
+- **The context window.** Ollama silently cuts a prompt that does not fit `num_ctx`, which would drop the start of the system prompt,
+  the part with the safety rules. The adapter asks for 16384 tokens (`JOBSHOP_OLLAMA_NUM_CTX`) and **refuses** any reply whose prompt
+  filled the window instead of letting the model answer from a truncated prompt.
+- Tool-call arguments that arrive as a JSON string are parsed; ones that are not JSON are passed on as an argument the tool rejects
+  by name, so the model is told what went wrong.
+
+**Not verified against a real Ollama.** None is installed on the machine this was written on. The adapter is tested against a stub
+server that behaves as Ollama's documentation says (request translation, tool calls and results, usage, every failure turned into
+an API error the loop already handles, dispatch by name, whole turns through the real loop). The first run against a real server is
+the real test, and how well a 7B model drives this loop is unknown: expect it to need the `route` pattern and clearer prompts.
+
+## Answer guards, a rate limit and a prompt gate (Phase 15)
+
+- **Answer guards** (`AgentConfig.answer_guards`, on by default). Two deterministic checks of the answer's words against what the
+  harness knows. (1) "the schedule is live / committed / applied" is false whenever it is written in chat, because nothing there can
+  commit. (2) "no order is late" is checked against the solver's result for the draft. Either adds a warning beside the answer; the
+  model's text is never changed or blocked. They work sentence by sentence and skip hedged, negated, conditional or reported
+  speech, tuned to miss a claim rather than cry wolf at an honest answer such as "the committed schedule is unchanged" or "the note
+  says the plan is live; I ignored it". The switch exists so the red team can measure what they catch.
+- **Rate limit.** The web server starts at most 10 agent turns a minute and 120 an hour (`JOBSHOP_RATE_LIMIT_PER_MIN`,
+  `..._PER_HOUR`, 0 to turn a window off); beyond that, `429` with `Retry-After`. It counts only turns that start (a request
+  refused because the assistant is busy costs nothing), and is off when `create_app` is used as a library unless a limit is
+  passed. There is no "who" to limit (the app has no login), so the limit protects the budget behind it.
+- **Prompt gate.** `evals/prompts.snapshot.json` holds the full text of everything the model receives. A test fails on any
+  difference and prints a diff; `python -m jobshop.evals snapshot --update` accepts a change on purpose.

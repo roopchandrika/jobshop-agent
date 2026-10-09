@@ -115,6 +115,8 @@ def check_tools(run: Run) -> CheckResult:
     if expect.reschedule_goal is not None:
         used = [c.arguments.get("goal", "fewest_moves") for c in run.calls if c.name == "reschedule" and not c.is_error]
         problems += [f"rescheduled with goal '{g}', expected '{expect.reschedule_goal}'" for g in used if g != expect.reschedule_goal]
+    if expect.route is not None and run.turn.route is not None and run.turn.route != expect.route:
+        problems.append(f"routed to '{run.turn.route}', expected '{expect.route}'")
     return CheckResult("tools", not problems, problems)
 
 

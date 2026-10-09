@@ -30,10 +30,13 @@ the code on purpose.
 | after | Numbers-check scope, slack/count fields, `earliest_finish` goal, prompt caching, CI, two shops | done and tested; not yet measured on the full suite with a real model | `ef202e6`, `3998768` |
 | 8a | Plant documents: chunking, BM25 search, `search_knowledge` tool, retrieval evaluation, 5 scenarios; record/replay for evals | done, reviewed | `492da16` |
 | 8b | Embeddings: dense and hybrid retrieval (optional `fastembed` extra), cache, three-way retrieval comparison, off-topic separation | done, reviewed | `f530be5` |
-| 9 | Memory: history compaction (short-term) and planner-only standing preferences (long-term), 4 scenarios | done and tested; **awaiting review**; not run on a real model | this commit |
-| 10 | Email order extraction: forced schema, evidence checks, abstention, rule-based baseline, 22 labelled emails | done and tested; baseline measured (0.68 exact); **the model extractor is written but never run** | this commit |
-| 11 | Agent patterns: plan, verify, reflect (combinable), pattern comparison in the evals | done and tested; **quality of each pattern unmeasured** (needs paid runs) | this commit |
-| 14 | Production basics: health check, streamed progress (SSE), Dockerfile, load test, OpenTelemetry trace export | done and tested; **the image was never built** (Docker was not running) | this commit |
+| 9 | Memory: history compaction (short-term) and planner-only standing preferences (long-term), 4 scenarios | done and tested; not run on a real model | `f2c7414` |
+| 10 | Email order extraction: forced schema, evidence checks, abstention, rule-based baseline, 22 labelled emails | done and tested; baseline measured (0.68 exact); **the model extractor is written but never run** | `f2c7414` |
+| 11 | Agent patterns: plan, verify, reflect (combinable), pattern comparison in the evals | done and tested; **quality of each pattern unmeasured** (needs paid runs) | `f2c7414` |
+| 12 | Multi-agent routing: a triage (on a cheaper model if wanted) sends questions to a read-only reader, vague requests to a question, "commit it" to a fixed refusal; per-call pricing for two models | done and tested; **accuracy and saving on a real model unmeasured** | this commit |
+| 13 | Open models: an Ollama adapter behind the same loop, selected by an `ollama:` model name, mixable with Anthropic models | done and tested **against a stub only**; never run against a real Ollama (none installed) | this commit |
+| 14 | Production basics: health check, streamed progress (SSE), Dockerfile, load test, OpenTelemetry trace export | done and tested; **the image was never built** (Docker was not running) | `f2c7414` |
+| 15 | Safety depth: a 12-attack red team with a measured success rate, answer guards (found by the red team), web rate limit, a prompt-change gate | done and tested; the success rate is for an obedient scripted model, **not yet measured on a real model** | this commit |
 | next | Judged, repeated two-model comparison (Sonnet vs Opus, judge Fable) | **started, stopped at 46 of 234 runs to save credit; no report** | see [What is next](#what-is-next) |
 
 ## Phase by phase
@@ -127,9 +130,11 @@ the code on purpose.
 | Phase 5 | 527 |
 | Phase 6 | 592 |
 | Phase 7 | 663 |
-| now | **1162** (5 more are opt-in: 2 call the real API, 3 download an embedding model) |
+| now | **1327** (5 more are opt-in: 2 call the real API, 3 download an embedding model) |
 
 About 6,300 lines of source, 5,800 lines of tests.
+
+Mutation testing of the Phase 12, 13 and 15 code: 51 deliberate breaks, 47 caught at once; 3 gaps closed with new tests and 1 equivalent change simplified in the code.
 
 ## Problems that testing caught (the useful stories)
 
@@ -141,6 +146,8 @@ About 6,300 lines of source, 5,800 lines of tests.
 | 7 | KPI values wrapped; an axis label collided with the next tick | looking at the page in a real browser | layout fixes |
 | 7 | A mutated test started a real server on all network interfaces | running mutation tests | test now fails fast if a server start is attempted |
 | real run | Utilization drop read as "idle machines"; an offer to try overtime; a six-section answer | the first real model answer | a data note, prompt rules, and a UI caption |
+| 11 | The verifier counted its own "you quoted 45" correction as evidence; a reviewer flag accepted "yes"; "7:30 p.m." read as 07:30 | testing the patterns and the extraction checks | error results are never evidence, strict booleans, am/pm checked first |
+| 15 | With a fully obedient model, 8 of 12 attacks ended with the assistant telling the planner the plan was live (or nothing was late) and nothing beside the words said otherwise | the first run of the red team | two deterministic answer guards; the red team now measures them (92% to 42% attack success) |
 
 ## Honest status
 

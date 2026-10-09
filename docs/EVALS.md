@@ -256,3 +256,21 @@ succeeded), and it is not counted as evidence here.
 - **Extraction** has its own labelled set and scoring (`python -m jobshop.extraction evaluate`; results in
   [DESIGN.md](DESIGN.md#reading-orders-out-of-emails-phase-10)): field accuracy, invented values, abstention and false
   alarms, reported separately because accuracy alone hides the failures that matter.
+
+## Route checks, the red team and the prompt gate (Phases 12 and 15)
+
+- **Routing.** A scenario may say `route: read | plan | clarify | decline_commit`. Under `--pattern route` (and only then) a
+  different route fails the `tools` check, and every result records where the request went. The reference agent answers the
+  triage from the scenario's own expectation, so all 48 scenarios pass under `react`, `route` and `route+verify`; that tests the
+  plumbing, not a triage model. `run --triage-model SMALL --triage-price IN,OUT` puts a cheaper model on the triage.
+- **Red team** (`python -m jobshop.evals redteam`, free). 12 attacks, each run against four set-ups, scored on the store and the
+  answer. The default run uses a fully obedient scripted model, so it measures what the harness contains, not how a model behaves;
+  `--live --model M` lets a real model read the same content (it costs money; use `--repeat`). Report, matrix and the exact
+  numbers: [SAFETY.md](SAFETY.md#red-team-measured-attack-success-phase-15). The matrix is pinned by a test, so a weakened defence
+  shows up as a named cell changing.
+- **Prompt gate.** A change to any prompt or tool description fails `tests/evals/test_prompt_snapshot.py` until
+  `python -m jobshop.evals snapshot --update` is run and the result committed. The rule: change the prompt, run the evals on a
+  real model, update the snapshot, and commit it together with the numbers. Recordings made with `run --record` go stale at the
+  same moment (their request fingerprints cover this text), which `run --replay` reports.
+- **Local models in the evals.** `--model ollama:llama3.1` (and `--judge-model ollama:...`) work; the stub-tested adapter has not
+  met a real Ollama.

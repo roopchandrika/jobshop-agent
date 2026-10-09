@@ -5,6 +5,7 @@ import threading
 import time
 import urllib.request
 
+import anthropic
 import pytest
 import uvicorn
 
@@ -53,7 +54,7 @@ def test_without_a_key_the_server_starts_with_chat_disabled(quiet, monkeypatch, 
 def test_with_a_key_and_model_chat_is_enabled(quiet, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setenv("ANTHROPIC_MODEL", "some-model")
-    monkeypatch.setattr(server.anthropic, "Anthropic", lambda: object())
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: object())
     seen = run_main_capturing_the_app(monkeypatch, ["--fixture", str(EVALS / "shop.json")])
     web = seen["app"].state.web
     assert web.conversation is not None and web.config.model == "some-model"

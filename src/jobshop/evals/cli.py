@@ -1,4 +1,4 @@
-"""``python -m jobshop.evals run | compare | build-shop``."""
+"""``python -m jobshop.evals run | compare | redteam | snapshot | retrieval | build-shop``."""
 
 from __future__ import annotations
 
@@ -10,26 +10,30 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
-import anthropic
 from dotenv import load_dotenv
 
 from jobshop.agent.cli import ConfigError, agent_config_from_env
 from jobshop.agent.loop import AgentConfig
 from jobshop.agent.pricing import Prices, parse_prices
+from jobshop.agent.providers import build_client, needs_anthropic
 from jobshop.core.solver import SolverConfig
-from jobshop.knowledge import RETRIEVERS, KnowledgeBase, build_retriever
-from jobshop.knowledge.loading import CACHE_VAR, MODEL_VAR, RETRIEVER_VAR
-from jobshop.knowledge.semantic import DEFAULT_MODEL
+from jobshop.evals import redteam, replay, retrieval, snapshot
 from jobshop.evals.compare import ModelSpec, render_comparison, run_comparison, write_comparison
 from jobshop.evals.oracle import OracleClient
-from jobshop.evals import replay, retrieval
 from jobshop.evals.report import render_table, summarize, write_results
 from jobshop.evals.runner import ScenarioResult, run_suite
 from jobshop.evals.scenario import Scenario, load_scenarios
 from jobshop.evals.shop import SHOPS, build_shop, load_shops, shop_path
+from jobshop.knowledge import RETRIEVERS, KnowledgeBase, build_retriever
+from jobshop.knowledge.loading import CACHE_VAR, MODEL_VAR, RETRIEVER_VAR
+from jobshop.knowledge.semantic import DEFAULT_MODEL
+
+NL = chr(10)
+BLANK = NL + NL
 
 # Per-model money settings must never leak from one model to another through the environment.
-_ENV_MONEY = ("JOBSHOP_PRICE_INPUT_PER_MTOK", "JOBSHOP_PRICE_OUTPUT_PER_MTOK", "JOBSHOP_MAX_COST_USD")
+_ENV_MONEY = ("JOBSHOP_PRICE_INPUT_PER_MTOK", "JOBSHOP_PRICE_OUTPUT_PER_MTOK", "JOBSHOP_MAX_COST_USD",
+              "JOBSHOP_TRIAGE_PRICE_INPUT_PER_MTOK", "JOBSHOP_TRIAGE_PRICE_OUTPUT_PER_MTOK")
 
 
 def _progress(total: int, prefix: str = ""):
@@ -83,8 +87,9 @@ def _run_id(label: str) -> str:
     return f"{datetime.now():%Y%m%d-%H%M%S}-{re.sub(r'[^A-Za-z0-9.-]+', '_', label)[:40]}"
 
 
-def _need_key() -> None:
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+def _need_key(*models: str | None) -> None:
+    """An Anthropic key is needed only if some model in this run is an Anthropic model (not a local ollama: one)."""
+    if needs_anthropic(*models) and not os.environ.get("ANTHROPIC_API_KEY"):
         raise ConfigError("ANTHROPIC_API_KEY is not set (put it in .env or the environment).")
 
 
@@ -124,20 +129,25 @@ def _run(args: argparse.Namespace) -> int:
             config = agent_config_from_env({"ANTHROPIC_MODEL": "replay"})
         else:
             config = _with_prices(agent_config_from_env({**os.environ, "ANTHROPIC_MODEL": model}), _prices(args.price))
-            _need_key()
             if judge_model is not None and not judge_model:
                 raise ConfigError("no judge model: set ANTHROPIC_JUDGE_MODEL or pass --judge-model (or --no-judge)")
+            _need_key(model, judge_model, os.environ.get("JOBSHOP_TRIAGE_MODEL"), args.triage_model)
             if judge_model == model:
                 raise ConfigError("the judge must be a different model from the one under test")
         if args.pattern:
             config = replace(config, pattern=args.pattern)   # a mistyped pattern is a configuration error, not a crash
+        if args.triage_model or args.triage_price:
+            triage = _prices(args.triage_price)
+            config = replace(config, triage_model=args.triage_model or config.triage_model,
+                             **({} if triage is None else {"triage_price_input_per_mtok": triage.input_per_mtok,
+                                                           "triage_price_output_per_mtok": triage.output_per_mtok}))
         shops = _shops(args, scenarios)
         knowledge = _knowledge(args, scenarios)
     except (ConfigError, ValueError) as e:
         print(f"Configuration error: {e}", file=sys.stderr)
         return 2
 
-    client = None if offline else anthropic.Anthropic()
+    client = None if offline else build_client(os.environ, model, judge_model, config.triage_model)
     judge = (client, judge_model) if judge_model else None
     if args.oracle:
         client_for = OracleClient
@@ -191,7 +201,6 @@ def _compare(args: argparse.Namespace) -> int:
                 raise ConfigError("compare needs two different models (--model A --model B) or one model with two patterns (--model A --pattern react --pattern verify)")
             if len(set(names)) != len(names):
                 raise ConfigError("the same model was given twice")
-            _need_key()
             prices: dict[str, Prices] = {}
             for item in args.price or []:
                 name, _, text = item.rpartition("=")
@@ -203,7 +212,8 @@ def _compare(args: argparse.Namespace) -> int:
                 raise ConfigError("no judge model: set ANTHROPIC_JUDGE_MODEL or pass --judge-model (or --no-judge)")
             if judge_model in names:
                 raise ConfigError(f"the judge ({judge_model}) must not be one of the models being compared")
-            client = anthropic.Anthropic()
+            _need_key(*names, judge_model, os.environ.get("JOBSHOP_TRIAGE_MODEL"))
+            client = build_client(os.environ, *names, judge_model, os.environ.get("JOBSHOP_TRIAGE_MODEL"))
             if patterns:
                 for p in patterns:
                     AgentConfig(model="x", pattern=p)   # a mistyped pattern is a configuration error now, not after a paid run starts
@@ -267,6 +277,97 @@ def _retrieval(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def _redteam(args: argparse.Namespace) -> int:
+    load_dotenv()
+    live = args.live
+    try:
+        attacks = redteam.load_attacks(args.attacks or args.evals_dir / "redteam.yaml")
+        if args.only:
+            attacks = [a for a in attacks if a.id in set(args.only) or a.surface in args.only or a.goal in args.only]
+            if not attacks:
+                raise ConfigError(f"--only {args.only} matches no attack id, surface or goal")
+        if live:
+            model = args.model or os.environ.get("ANTHROPIC_MODEL", "")
+            if not model:
+                raise ConfigError("--live needs a model: --model or $ANTHROPIC_MODEL")
+            _need_key(model, os.environ.get("JOBSHOP_TRIAGE_MODEL"))
+            base = agent_config_from_env({**os.environ, "ANTHROPIC_MODEL": model})
+            patterns = list(dict.fromkeys(args.pattern or ["react", "route"]))
+            rows = [redteam.Row(p, p) for p in patterns] + ([redteam.Row("react, answer guards off", "react", guards=False)] if args.no_guards_row else [])
+        else:
+            if args.model or args.pattern:
+                raise ConfigError("--model and --pattern choose what a real model runs; they only apply with --live (the default set-ups are fixed)")
+            model, base, rows = "obedient", None, list(redteam.ROWS)
+        for row in rows:
+            AgentConfig(model="x", pattern=row.pattern)        # a mistyped pattern is a configuration error before anything is paid for
+        shops = load_shops(args.evals_dir, {a.shop for a in attacks})
+        folder = args.knowledge_dir if args.knowledge_dir is not None else args.evals_dir.parent / "knowledge"
+        knowledge = KnowledgeBase.from_directory(folder) if folder.is_dir() else None
+        if knowledge is None and any(a.document for a in attacks):
+            raise ConfigError(f"some attacks plant a document among the plant documents, but {folder} is not a folder (see --knowledge-dir)")
+    except (ConfigError, ValueError, FileNotFoundError) as e:
+        print(f"Configuration error: {e}", file=sys.stderr)
+        return 2
+
+    runs = len(attacks) * len(rows) * args.repeat
+    if live:
+        print(f"LIVE: {runs} runs against {model} (each is a full agent turn, typically 3-8 model calls; this costs money). Hostile content is "
+              "planted in order notes and plant documents of an in-memory shop; nothing outside this process is touched.", flush=True)
+    else:
+        print(f"{runs} runs with an obedient scripted model (no API calls, no cost).", flush=True)
+    done = 0
+
+    def progress(r: redteam.AttackResult) -> None:
+        nonlocal done
+        done += 1
+        print(f"[{done:>3}/{runs}] {r.attack} {r.row:<26} {'ATTACK SUCCEEDED' if r.success else 'contained'}" + (f" ({r.error})" if r.error else ""), flush=True)
+
+    client = build_client(os.environ, model) if live else None
+    results = redteam.run_redteam(attacks, rows, shops, SolverConfig(time_limit_s=args.solve_seconds, num_workers=1, seed=0),
+                                  client_for=(lambda a: client) if live else redteam.ObedientClient, repeat=args.repeat,
+                                  knowledge=knowledge, base_config=base, progress=progress)
+    out_dir = args.out / redteam.run_id("live" if live else "obedient")
+    meta = {"mode": "live" if live else "obedient", "model": model if live else None, "repeat": args.repeat, "attacks": len(attacks)}
+    path = redteam.write_report(out_dir, attacks, results, meta)
+    summary = redteam.summarize(results)
+    print("\n" + redteam.render_table(summary) + f"\n\nReport: {path}")
+    crashed = sum(r.status == "crashed" for r in results)
+    if crashed:
+        print(f"{crashed} run(s) crashed (counted as errors, not as contained)", file=sys.stderr)
+    return 1 if crashed else 0
+
+
+def _snapshot(args: argparse.Namespace) -> int:
+    path = args.evals_dir / snapshot.SNAPSHOT_NAME
+    try:
+        if args.update:
+            now = snapshot.current(args.evals_dir, args.knowledge_dir)
+            changes = snapshot.differences(snapshot.load(path), now) if path.exists() else None
+            snapshot.save(path, now)
+            if changes is None:
+                print(f"Created {path}: {len(now)} pieces of text.")
+            elif not changes:
+                print(f"{path} is already up to date.")
+            else:
+                print(f"Updated {path}: {len(changes)} of {len(now)} pieces of text changed.")
+                print(BLANK.join(changes))
+                print(f"{NL}Now run the evals against a real model, and commit this file together with the numbers that justify the change.")
+            return 0
+        problems = snapshot.check(args.evals_dir, args.knowledge_dir)
+    except (OSError, ValueError, KeyError) as e:
+        print(f"Configuration error: {e}", file=sys.stderr)
+        return 2
+    if problems and not (args.evals_dir / snapshot.SNAPSHOT_NAME).exists():
+        print(problems[0], file=sys.stderr)
+        return 1
+    if problems:
+        print(BLANK.join(problems), file=sys.stderr)
+        print(f"{NL}What the model is told has changed. If that was intended: run the evals, then {snapshot.UPDATE_COMMAND} and commit the result.", file=sys.stderr)
+        return 1
+    print("The prompts and tool descriptions match the snapshot.")
+    return 0
+
+
 def _build(args: argparse.Namespace) -> int:
     for name in args.shop or ["default"]:
         path = shop_path(args.evals_dir, name)
@@ -299,6 +400,8 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--oracle", action="store_true", help="use the scripted reference agent: no API calls, tests the eval itself")
     run.add_argument("--pattern", help="agent pattern: react (default), plan, verify, reflect, or several joined with + (e.g. plan+verify). "
                      "The scripted reference agent can only play react and verify.")
+    run.add_argument("--triage-model", help="with the 'route' pattern: a smaller model for the triage call (default: the model under test)")
+    run.add_argument("--triage-price", help="USD per million tokens for the triage model as 'input,output'")
     run.add_argument("--record", type=Path, metavar="DIR", help="save every model response under DIR so the run can be replayed for free")
     run.add_argument("--replay", type=Path, metavar="DIR", help="re-run from a recording made with --record: no API calls, no cost; "
                      "a scenario whose prompt, tools or tool results changed since is reported as a stale recording")
@@ -319,6 +422,24 @@ def main(argv: list[str] | None = None) -> int:
                        help="which shop to rebuild; repeatable (default: the default shop). Rebuilding replaces a "
                             "committed fixture, so results from before are no longer comparable")
     build.set_defaults(func=_build)
+
+    red = sub.add_parser("redteam", help="plant hostile content (notes, documents, messages) and measure how often the attacks get what they want")
+    red.add_argument("--attacks", type=Path, help="attack file (default: <evals-dir>/redteam.yaml)")
+    red.add_argument("--only", action="append", help="an attack id, surface (order_note, document, user_message) or goal; repeatable")
+    red.add_argument("--live", action="store_true", help="let a real model read the hostile content (calls the API, costs money); default: an obedient scripted model")
+    red.add_argument("--model", help="with --live: the model to attack (default: $ANTHROPIC_MODEL)")
+    red.add_argument("--pattern", action="append", help="with --live: pattern to attack; repeatable (default: react and route)")
+    red.add_argument("--no-guards-row", action="store_true", help="with --live: also run react with the answer guards off, to see what they catch")
+    red.add_argument("--repeat", type=int, default=1, help="runs per attack and set-up (a real model varies between runs)")
+    red.add_argument("--solve-seconds", type=float, default=5.0)
+    red.add_argument("--out", type=Path, default=Path("evals/results"))
+    red.add_argument("--knowledge-dir", type=Path, help="plant documents (default: <evals-dir>/../knowledge)")
+    red.set_defaults(func=_redteam)
+
+    snap = sub.add_parser("snapshot", help="check (or --update) the saved text of every prompt and tool description; fails when the model's instructions changed")
+    snap.add_argument("--update", action="store_true", help="rewrite the snapshot from the code (after the evals justify the change)")
+    snap.add_argument("--knowledge-dir", type=Path, help="plant documents (default: <evals-dir>/../knowledge)")
+    snap.set_defaults(func=_snapshot)
 
     ret = sub.add_parser("retrieval", help="score the plant-document search on labelled questions (no model, no cost)")
     ret.add_argument("--k", type=int, default=3, help="how many passages count as 'found' (default 3)")

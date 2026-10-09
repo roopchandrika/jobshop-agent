@@ -5,6 +5,7 @@ scenarios:
     request: "Order O-103 is now urgent."
     expect:
       outcome: proposal
+      route: plan
       changes: {priorities: {O-103: 5}}
       tools_required: [create_draft, change_priority, reschedule, compare_schedules]
       max_calls: {reschedule: 1}
@@ -41,6 +42,7 @@ scenarios:
     request: "Add a rush gear order due today at 18:00."
     expect:
       outcome: proposal
+      route: plan
       changes: {rush_orders: [{family: gear, due: "2026-01-05 18:00", priority: 5}]}
       tools_required: [create_draft, add_rush_order, reschedule, compare_schedules]
       max_calls: {reschedule: 1}

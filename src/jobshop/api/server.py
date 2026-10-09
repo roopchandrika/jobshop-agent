@@ -8,13 +8,14 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import anthropic
 import uvicorn
 from dotenv import load_dotenv
 
 from jobshop.agent.cli import ConfigError, agent_config_from_env, build_context
 from jobshop.agent.memory import PreferenceError, preferences_from_env
+from jobshop.agent.providers import build_client, needs_anthropic
 from jobshop.api.app import LOOPBACK_HOSTS, create_app
+from jobshop.api.ratelimit import limit_from_env
 from jobshop.core.generator import GeneratorSettings
 from jobshop.core.solver import SolverConfig
 from jobshop.evals.shop import DEFAULT_NOW, fresh_context, load_shop
@@ -71,10 +72,10 @@ def main(argv: list[str] | None = None) -> int:
     seconds = args.solve_seconds or float(os.environ.get("JOBSHOP_SOLVE_SECONDS") or 10)
     solver_config = SolverConfig(time_limit_s=seconds)
     try:
-        if not os.environ.get("ANTHROPIC_API_KEY"):
-            raise ConfigError("ANTHROPIC_API_KEY is not set")
         config = agent_config_from_env(os.environ)
-        client = anthropic.Anthropic()
+        if needs_anthropic(config.model, config.triage_model) and not os.environ.get("ANTHROPIC_API_KEY"):
+            raise ConfigError("ANTHROPIC_API_KEY is not set")
+        client = build_client(os.environ, config.model, config.triage_model)
     except ConfigError as e:
         print(f"No model configured ({e}). The page will show the plan, but chat is disabled.", file=sys.stderr)
         config, client = agent_config_from_env({"ANTHROPIC_MODEL": "none"}), None
@@ -87,10 +88,11 @@ def main(argv: list[str] | None = None) -> int:
     trace = args.trace_dir / f"api-{datetime.now():%Y%m%d-%H%M%S}.jsonl"
     try:
         preferences = preferences_from_env(os.environ)
-    except PreferenceError as e:
+        rate_limit = limit_from_env(os.environ)
+    except (PreferenceError, ValueError) as e:
         print(f"Configuration error: {e}", file=sys.stderr)
         return 2
-    app = create_app(ctx, client, config, tracer_path=trace, preferences=preferences)
+    app = create_app(ctx, client, config, tracer_path=trace, preferences=preferences, rate_limit=rate_limit)
     print(f"Open http://{args.host}:{args.port}   (trace: {trace})")
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     return 0

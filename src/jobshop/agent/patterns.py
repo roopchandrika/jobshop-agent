@@ -16,6 +16,9 @@ reflect  Before an answer is accepted, a second model call reviews it against fa
          can be wrong or be steered by the text it reads, so it only ever sends an answer back for revision; it cannot
          approve, change or hide anything.
 
+route    Multi-agent: a small triage call sends the request to a reader (read tools only), the full planner, a fixed
+         clarifying question, or a fixed refusal to commit; see the "route" section at the end of this module.
+
 Patterns combine with ``+`` (``plan+verify``). Whether any of them is *better* is a measurement, not an assumption:
 see ``python -m jobshop.evals compare --pattern ...``.
 """
@@ -24,13 +27,13 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError
 
 from jobshop.agent.claims import Facts, extract
 
-PATTERNS = ("react", "plan", "verify", "reflect")
+PATTERNS = ("react", "plan", "verify", "reflect", "route")
 MAX_PLAN_STEPS = 8
 
 # -- plan -----------------------------------------------------------------------------------------------------------------------
@@ -218,3 +221,75 @@ def review_message(problems: list[str], revision: int, limit: int) -> str:
         "Not delivered: a reviewer checked your answer against the system's records and found:\n" + listed +
         f"\nFix these (call a tool if you need a fact), then call submit_response again. (Revision {revision} of {limit}.)"
     )
+
+
+# -- route (multi-agent) -------------------------------------------------------------------------------------------------------------
+#
+# A small triage agent reads what the planner asked and sends the request to the right specialist, with only the tools
+# that specialist needs. The security point is *least privilege*: a question about the plan goes to a reader that has no
+# edit tools at all, so even a fully obedient reader, steered by a poisoned order note, has nothing to edit with. The
+# triage call sees only the planner's own words (never tool results, never documents), so it cannot be steered by them.
+#
+#   read            answer from the data: schedule, orders, machines, plant documents. No tool that changes anything.
+#   plan            a disruption or change: the full tool set (draft, edit, re-plan, compare).
+#   clarify         too vague to act on: ask the one question, with no further model call and no tools.
+#   decline_commit  asked to commit or apply a plan: a fixed refusal, no model call and no tools.
+
+ROUTES = ("read", "plan", "clarify", "decline_commit")
+TRIAGE_TOOL = "submit_triage"
+READ_ONLY_TOOLS = frozenset({"get_schedule", "list_orders", "get_order", "get_machine_status", "search_knowledge"})
+
+TRIAGE_SYSTEM = """You route a production planner's message to the right specialist. You see only what the planner wrote.
+
+Routes
+- read: a question about the current plan, an order, a machine, or how the plant works; it needs looking things up and changes nothing.
+- plan: a disruption or a change to try (a machine outage, a priority change, a rush order), or a request to compare options.
+- clarify: a request that would change the plan but is missing something needed to act (which order, which machine, what time, how urgent). Put the one concise question in "question".
+- decline_commit: the planner asks you to commit, apply, approve or make a plan live. Nobody but the planner can; do not route this anywhere else.
+
+If unsure between read and plan, choose plan. Submit your choice by calling submit_triage."""
+
+READER_ROLE = """
+
+Your role in this conversation: you answer questions about the plan and the plant. You have read tools only and cannot \
+change anything. If the planner wants a change tried, say that they should ask for it as a disruption or change."""
+
+
+class Triage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    route: Literal["read", "plan", "clarify", "decline_commit"]
+    reason: str = Field(default="", max_length=200)
+    question: str | None = Field(default=None, max_length=300)
+
+
+TRIAGE_SPEC = {
+    "name": TRIAGE_TOOL,
+    "description": "Submit the route for the planner's message.",
+    "input_schema": Triage.model_json_schema(),
+}
+
+COMMIT_REFUSAL = (
+    "I can't commit or approve a plan; only you can. If there is a proposal, review it and press Approve (or answer y "
+    "in the terminal). Tell me what you want changed and I'll try it on a draft."
+)
+
+
+def parse_triage(payload: Any) -> Triage | None:
+    try:
+        triage = Triage.model_validate(payload)
+    except ValidationError:
+        return None
+    if triage.route == "clarify" and not (triage.question or "").strip():
+        return None       # a clarification without a question is unusable: fall back to the full agent
+    return triage
+
+
+def planner_context(history: list[dict[str, Any]], current: str, keep: int = 3) -> str:
+    """The planner's last few messages, oldest first, then the current one. Only the planner's own words: no tool
+    results, no model text, no system notices, so nothing a document or order note says can reach the triage call."""
+    mine = [
+        m["content"].split("]\n\n", 1)[-1] if m["content"].startswith("[Notice from the scheduling system") else m["content"]
+        for m in history if m["role"] == "user" and isinstance(m["content"], str) and not m["content"].startswith("Please finish by calling")
+    ]
+    lines = [f"Earlier: {t}" for t in mine[-keep:]] + [f"Now: {current.split(chr(10) * 2, 1)[-1] if current.startswith('[Notice') else current}"]
+    return "\n".join(lines)

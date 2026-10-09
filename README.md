@@ -10,7 +10,7 @@ and approves it.
 This is a portfolio project, built to learn AI engineering. The agent's tool-use loop is written by hand
 on the Anthropic SDK (no agent framework), and all data is synthetic.
 
-> **Status.** Built and tested: 1162 automated tests, CI on every push. One real-model evaluation exists
+> **Status.** Built and tested: 1327 automated tests, CI on every push. One real-model evaluation exists
 > (29 scenarios, no judge: 22/29, every miss in one check that has since been narrowed). A judged, repeated
 > two-model comparison was started and stopped early to save API credit, so **no comparison has been
 > completed**. See [What is and isn't verified](#what-is-and-isnt-verified).
@@ -152,6 +152,10 @@ uv run pytest                    # about five minutes; 5 tests are skipped (opt-
 | Export a trace as OpenTelemetry spans | `uv run python -m jobshop.agent.trace_export logs/traces/<file>.jsonl -o spans.json` |
 | Score order extraction from emails (free baseline) | `uv run python -m jobshop.extraction evaluate` |
 | Compare agent patterns on one model | `... evals compare --model M --pattern react --pattern verify` (spends API credit) |
+| Route questions to a read-only specialist | `... evals run --pattern route` (or `JOBSHOP_PATTERN=route`); a cheaper triage model: `--triage-model M --triage-price IN,OUT` |
+| Red team: 12 attacks, measured success rate (obedient scripted model, free) | `uv run python -m jobshop.evals redteam`; a real model reads them with `--live --model M` (spends API credit) |
+| Check that no prompt or tool description changed unnoticed | `uv run python -m jobshop.evals snapshot` (`--update` after the evals justify a change) |
+| Use a local open model (**adapter not yet tried on a real Ollama**) | name it `ollama:<model>` in `ANTHROPIC_MODEL`, `--model` or `JOBSHOP_TRIAGE_MODEL`; see [docs/DESIGN.md](docs/DESIGN.md#open-models-phase-13) |
 | Load-test the web app (scripted demo, free) | `uv run python scripts/load_test.py --spawn` |
 | Container (**image not yet built or run**) | `docker build -t jobshop-agent .` then `docker run --rm -p 127.0.0.1:8000:8000 jobshop-agent` |
 
@@ -178,8 +182,16 @@ it opens instantly. Without an API key it still shows the plan and chat is disab
   cannot plant a lasting instruction.
 - **Reading emails:** a rush-order email becomes a structured order whose every value must carry a quote that exists in
   the email and says it; a rule-based baseline scores 0.68 exact on 22 labelled emails (the model extractor is written, not yet run).
-- **Agent patterns:** `react`, `plan`, `verify` (code checks every figure came from a tool) and `reflect` (a second
-  call reviews the answer), combinable and comparable in the evals; which is better is not measured yet.
+- **Agent patterns:** `react`, `plan`, `verify` (code checks every figure came from a tool), `reflect` (a second
+  call reviews the answer) and `route` (a triage on a possibly cheaper model sends questions to a reader that has no
+  edit tools, vague requests to a clarifying question, and "commit it" to a fixed refusal), combinable and comparable
+  in the evals; which is better is not measured yet.
+- **Red team and guards:** 12 attacks (order notes, planted documents, the planner's own words) are run against four
+  set-ups with a fully obedient scripted model and scored on the store and the answer: attack success falls from 92%
+  to 42% with the answer guards and 8% with routing, and the live plan never changes ([docs/SAFETY.md](docs/SAFETY.md#red-team-measured-attack-success-phase-15)).
+  It measures what the harness contains, not how a real model behaves. A web rate limit and a test that fails when any
+  prompt or tool description changes round it out.
+- **Open models:** a stub-tested adapter lets any model name `ollama:<name>` run the same loop; it has not met a real Ollama.
 - **Running it:** health check, streamed progress (Server-Sent Events), a Dockerfile (not yet built), a load test, and
   OpenTelemetry trace export.
 - **Evals:** 48 scenarios on two shops; checks read the system's state, not the model's wording; an LLM judge
@@ -195,13 +207,14 @@ Reasons, trade-offs and a glossary: [docs/DESIGN.md](docs/DESIGN.md). Threat mod
 | Verified | Not verified |
 |---|---|
 | The solver against an independent validator and recomputation | The LLM judge on a real model |
-| Tools, loop, approval, store and the MCP server over real stdio, by 1162 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
+| Tools, loop, approval, store and the MCP server over real stdio, by 1327 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
 | The web API (CSRF, Origin, Host, CSP, approval fingerprint) over a real socket | Claude Desktop/Code connecting to the MCP server |
 | The UI in a real browser: chat, proposal, Approve, charts, dark mode, phone width | The Approve flow with a real model; screen readers; browsers other than one |
 | A real model on 29 scenarios, deterministic checks only (above) | The changes since then (goal option, caching, plant documents, new scenarios) over the full suite on a real model; whether a real model searches, cites and stays grounded, including declining to answer from a nearest-but-irrelevant passage |
 | Safety, eval and API code by mutation testing: guards broken on purpose, a test failed for each | A security audit: this is a local single-user app, not hardened for a network |
 | Memory, patterns and extraction logic with scripted models; the web layer under concurrent load (20 users: one chat accepted, 19 told to wait, no errors); the event stream live on a real socket | Any of those on a real model: whether stored preferences are followed, whether `verify`/`reflect`/`plan` help, how a model does on the emails |
 | Trace export against the OTLP JSON structure | The container image (never built: Docker was not running); trace export into a real tracing backend |
+| Routing, the answer guards, the rate limit, the prompt snapshot and the red-team scoring with scripted models; the red team's 12 attacks against a fully obedient scripted model (live plan never changed) | Any of it on a real model: how often a real model is taken in by the attacks, whether the triage routes correctly, whether routing saves money. The Ollama adapter against a real Ollama (none installed here) |
 
 **Limits:** one planner and one shop; state is in memory (web) or a JSON file (MCP), with no accounts or
 history; at the default size nothing is proven optimal in 30 s; setup times, labour and preemption are out
@@ -212,14 +225,14 @@ of scope. More in [docs/DESIGN.md](docs/DESIGN.md#known-limits).
 ```
 src/jobshop/core/        models, solver, validator, KPIs, change and reschedule rules   (no LLM)
 src/jobshop/tools/       store, approval tokens, tool functions, registry, human-only commit  (no LLM)
-src/jobshop/agent/       hand-written loop, patterns, memory, prompts, conversation, traces, chat CLI
+src/jobshop/agent/       hand-written loop, patterns, memory, model providers (Anthropic, Ollama), prompts, conversation, traces, chat CLI
 src/jobshop/mcp_server/  stdio MCP server and the human `admin` command
 src/jobshop/api/         FastAPI app and the web UI (static/)
-src/jobshop/evals/       scenarios, checks, judge, runner, comparison, record/replay, retrieval scoring, reference agent
+src/jobshop/evals/       scenarios, checks, judge, runner, comparison, record/replay, retrieval scoring, reference agent, red team, prompt snapshot
 src/jobshop/knowledge/   chunking, keyword (BM25) and embedding search over the plant documents   (no LLM)
 src/jobshop/extraction/  reading orders out of emails: schema, checks, rule-based baseline, model extractor, scoring
 scripts/                 demo_server.py (scripted model, real solver), load_test.py
-evals/                   two fixture shops, 48 scenarios (YAML), retrieval questions, labelled emails, results (gitignored)
+evals/                   two fixture shops, 48 scenarios (YAML), 12 red-team attacks, prompt snapshot, retrieval questions, labelled emails, results (gitignored)
 knowledge/               synthetic plant documents the agent can search (markdown)
 tests/                   mirrors src/
 docs/                    ROADMAP, DESIGN, EVALS, SAFETY, OBSERVABILITY, MCP

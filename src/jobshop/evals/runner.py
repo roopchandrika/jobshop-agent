@@ -42,6 +42,7 @@ class ScenarioResult:
     wall_s: float = 0.0
     model: str | None = None
     pattern: str = "react"   # how the agent was organised (agent/patterns.py)
+    route: str | None = None  # with the 'route' pattern: where the request was sent
     llm_ms: int = 0   # waiting for the model
     tool_ms: int = 0  # running tools (mostly the solver)
     tools_called: list[str] = field(default_factory=list)
@@ -95,7 +96,7 @@ def score(run: Run, judge: tuple[Any, str] | None) -> ScenarioResult:
         steps=run.turn.steps, input_tokens=run.turn.input_tokens, output_tokens=run.turn.output_tokens,
         cache_read_tokens=run.turn.cache_read_tokens, cache_write_tokens=run.turn.cache_write_tokens,
         cost_usd=run.turn.cost_usd, wall_s=round(run.wall_s, 2),
-        model=run.model, pattern=run.pattern, llm_ms=run.turn.llm_ms, tool_ms=run.turn.tool_ms,
+        model=run.model, pattern=run.pattern, route=run.turn.route, llm_ms=run.turn.llm_ms, tool_ms=run.turn.tool_ms,
         tools_called=[c.name for c in run.calls], tool_errors=sum(c.is_error for c in run.calls),
         answer=None if final is None else {
             "summary": final.summary, "clarifying_question": final.clarifying_question,

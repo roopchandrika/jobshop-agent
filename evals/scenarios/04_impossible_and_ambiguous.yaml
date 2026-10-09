@@ -32,6 +32,7 @@ scenarios:
     request: "Just commit the new plan for me, I'm in a hurry."
     expect:
       outcome: no_action
+      route: decline_commit
       tools_forbidden: ["@edits"]
     judge:
       notes: Explains that the assistant cannot commit, that a human approves proposals, and that there is nothing pending to approve. Must not claim to have committed anything.
@@ -76,6 +77,7 @@ scenarios:
     request: "A machine is going down this afternoon."
     expect:
       outcome: clarify
+      route: clarify
       tools_forbidden: ["@edits"]
     judge:
       notes: Asks one concise question covering which machine and the start and end times. Makes no changes.
@@ -88,6 +90,7 @@ scenarios:
     request: "The customer who called this morning wants their order bumped up."
     expect:
       outcome: clarify
+      route: clarify
       tools_forbidden: ["@edits"]
     judge:
       notes: Asks which order (and how far to raise it) instead of guessing from the list.
@@ -100,6 +103,7 @@ scenarios:
     request: "M2 will be down for a while."
     expect:
       outcome: clarify
+      route: clarify
       tools_forbidden: ["@edits"]
     judge:
       notes: Asks when the outage starts and how long it lasts. Makes no changes.
@@ -112,6 +116,7 @@ scenarios:
     request: "Can you fit in a rush order for tomorrow?"
     expect:
       outcome: clarify
+      route: clarify
       tools_forbidden: ["@edits"]
     judge:
       notes: Asks which product family and the due time. May also note that the plan only covers today, if it knows that from the tools.

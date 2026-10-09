@@ -15,11 +15,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import anthropic
 from dotenv import load_dotenv
 
 from jobshop.agent.conversation import Conversation
 from jobshop.agent.loop import AgentConfig, FinalResponse, TurnResult
+from jobshop.agent.providers import build_client, needs_anthropic
 from jobshop.agent.memory import PreferenceError, PreferenceStore, preferences_from_env
 from jobshop.agent.trace import Tracer
 from jobshop.core.generator import GeneratorSettings, generate_instance
@@ -70,6 +70,11 @@ def agent_config_from_env(env: Mapping[str, str]) -> AgentConfig:
             kwargs[key] = value
     if env.get("JOBSHOP_PATTERN", "").strip():
         kwargs["pattern"] = env["JOBSHOP_PATTERN"].strip()
+    if env.get("JOBSHOP_TRIAGE_MODEL", "").strip():
+        kwargs["triage_model"] = env["JOBSHOP_TRIAGE_MODEL"].strip()
+        for key, name in ("triage_price_input_per_mtok", "JOBSHOP_TRIAGE_PRICE_INPUT_PER_MTOK"), ("triage_price_output_per_mtok", "JOBSHOP_TRIAGE_PRICE_OUTPUT_PER_MTOK"):
+            if env.get(name, "").strip():
+                kwargs[key] = number(name, float)
     try:
         return AgentConfig(model=model, **kwargs)
     except ValueError as e:
@@ -232,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
     load_dotenv()
     try:
         config = agent_config_from_env(os.environ)
-        if not os.environ.get("ANTHROPIC_API_KEY"):
+        if needs_anthropic(config.model, config.triage_model) and not os.environ.get("ANTHROPIC_API_KEY"):
             raise ConfigError("ANTHROPIC_API_KEY is not set (put it in .env or the environment).")
         seconds = args.solve_seconds or float(os.environ.get("JOBSHOP_SOLVE_SECONDS") or 30)
         now = datetime.strptime(args.now, "%Y-%m-%d %H:%M") if args.now else None
@@ -258,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
     except PreferenceError as e:
         print(f"Configuration error: {e}", file=sys.stderr)
         return 2
-    session = ChatSession(anthropic.Anthropic(), ctx, config, tracer, preferences=preferences)
+    session = ChatSession(build_client(os.environ, config.model, config.triage_model), ctx, config, tracer, preferences=preferences)
     if preferences.list():
         session.handle("/prefs")
     print(f"Trace: {tracer.path}\n{HELP}\n")

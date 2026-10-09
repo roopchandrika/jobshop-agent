@@ -16,6 +16,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from jobshop.agent.providers import build_client, needs_anthropic
 from jobshop.extraction import evaluate
 from jobshop.extraction.baseline import extract_baseline
 from jobshop.extraction.llm import extract_with_llm
@@ -38,9 +39,7 @@ def read_email(path: Path) -> str:
 
 
 def _llm_extractor(model: str):
-    import anthropic
-
-    client = anthropic.Anthropic()
+    client = build_client(os.environ, model)
     usage = {"in": 0, "out": 0}
 
     def run(text, now, families):
@@ -63,7 +62,7 @@ def _evaluate(args: argparse.Namespace) -> int:
     if args.extractor == "llm":
         load_dotenv()
         model = args.model or os.environ.get("ANTHROPIC_MODEL", "")
-        if not model or not os.environ.get("ANTHROPIC_API_KEY"):
+        if not model or (needs_anthropic(model) and not os.environ.get("ANTHROPIC_API_KEY")):
             print("Configuration error: --extractor llm needs ANTHROPIC_API_KEY and a model (--model or ANTHROPIC_MODEL).", file=sys.stderr)
             return 2
         print(f"Calling {model} once per email ({len(data.emails)} small calls).")

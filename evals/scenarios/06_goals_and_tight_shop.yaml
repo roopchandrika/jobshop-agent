@@ -7,6 +7,7 @@ scenarios:
     request: "Add a rush shaft order due 13:00 today. I care more about everything finishing early than about how much gets moved."
     expect:
       outcome: proposal
+      route: plan
       changes: {rush_orders: [{family: shaft, due: "2026-01-05 13:00", priority: 5}]}
       tools_required: [create_draft, add_rush_order, reschedule, compare_schedules]
       max_calls: {reschedule: 1}
@@ -46,6 +47,7 @@ scenarios:
     request: "How many orders are on time right now, and which one has the least slack?"
     expect:
       outcome: no_action
+      route: read
       tools_any: [[list_orders, get_schedule]]
       tools_forbidden: ["@edits"]
     judge:
@@ -63,6 +65,7 @@ scenarios:
     request: "M2 is down from 11:00 to 15:00."
     expect:
       outcome: proposal
+      route: plan
       changes: {downtimes: [{machine: M2, start: "2026-01-05 11:00", end: "2026-01-05 15:00"}]}
       tools_required: [create_draft, simulate_downtime, reschedule, compare_schedules]
       max_calls: {reschedule: 1}
@@ -76,6 +79,7 @@ scenarios:
     request: "Add a rush shaft order due 13:00 today."
     expect:
       outcome: proposal
+      route: plan
       changes: {rush_orders: [{family: shaft, due: "2026-01-05 13:00", priority: 5}]}
       tools_required: [create_draft, add_rush_order, reschedule, compare_schedules]
       max_calls: {reschedule: 1}
@@ -119,6 +123,7 @@ scenarios:
     request: "Which orders will finish within 15 minutes of their due time?"
     expect:
       outcome: no_action
+      route: read
       tools_any: [[list_orders, get_schedule]]
       tools_forbidden: ["@edits"]
     judge:

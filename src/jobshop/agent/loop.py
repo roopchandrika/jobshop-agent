@@ -28,15 +28,18 @@ from typing import Any, Literal
 import anthropic
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from jobshop.agent.claims import LIVE_CLAIM_WARNING, claims_nothing_is_late, claims_plan_is_live
 from jobshop.agent.patterns import (
-    PATTERNS, PLAN_RULES, PLAN_TOOL, REVIEW_TOOL, Plan, critic_request, evidence_facts, harness_facts, parse_plan, parse_review,
-    plan_adherence, plan_block, plan_spec, review_message, unverified_figures, verify_message,
+    COMMIT_REFUSAL, PATTERNS, PLAN_RULES, PLAN_TOOL, READER_ROLE, READ_ONLY_TOOLS, REVIEW_TOOL, TRIAGE_SPEC,
+    TRIAGE_SYSTEM, TRIAGE_TOOL, Plan, critic_request, evidence_facts, harness_facts, parse_plan, parse_review,
+    parse_triage, plan_adherence, plan_block, plan_spec, planner_context, review_message, unverified_figures,
+    verify_message,
 )
 from jobshop.agent.pricing import Prices
 from jobshop.agent.trace import TRACE_VERSION, Tracer
 from jobshop.tools.errors import ToolError
 from jobshop.tools.functions import DraftId
-from jobshop.tools.outcome import draft_outcome
+from jobshop.tools.outcome import DraftOutcome, draft_outcome
 from jobshop.tools.registry import ToolRegistry
 from jobshop.tools.views import Goal, KPIView, fmt
 
@@ -99,6 +102,9 @@ class AgentConfig:
     price_output_per_mtok: float | None = None
     # Mark the conversation so far as cacheable: each model call then re-reads the system prompt, the
     # tool definitions and earlier steps at a fraction of the price instead of paying for them again.
+    # Deterministic checks on the words of the answer against what the harness knows (see guard_warnings). On unless a red-team
+    # run is measuring what they are worth.
+    answer_guards: bool = True
     prompt_caching: bool = True
     # Short-term memory: when the conversation's estimated size passes this, old tool results are cleared (and, if need be,
     # the oldest turns dropped). None switches it off. See agent/history.py.
@@ -108,17 +114,30 @@ class AgentConfig:
     # See agent/patterns.py. 'verify' and 'reflect' may send an answer back this many times before delivering it with a warning.
     pattern: str = "react"
     max_revisions: int = 1
+    # With the 'route' pattern: the model that does the triage (a small cheap one is the point), and its own prices.
+    # None means the main model. Every call is costed at its own model's prices.
+    triage_model: str | None = None
+    triage_price_input_per_mtok: float | None = None
+    triage_price_output_per_mtok: float | None = None
 
     def __post_init__(self) -> None:
         unknown = set(self.patterns) - set(PATTERNS)
         if unknown or not self.patterns:
             raise ValueError(f"unknown pattern {self.pattern!r}; choose from {', '.join(PATTERNS)}, joined with + to combine")
+        if self.triage_model and self.triage_model != self.model and self.prices is not None and self.triage_prices is None:
+            raise ValueError("a separate triage model needs its own prices (triage_price_*), or its cost would be counted at the main model's rate")
         if self.max_cost_usd is not None and None in (self.price_input_per_mtok, self.price_output_per_mtok):
             raise ValueError("a cost budget needs both token prices (input and output per million tokens)")
 
     @property
     def patterns(self) -> frozenset[str]:
         return frozenset(p.strip() for p in self.pattern.lower().split("+") if p.strip())
+
+    @property
+    def triage_prices(self) -> Prices | None:
+        if self.triage_price_input_per_mtok is None or self.triage_price_output_per_mtok is None:
+            return None
+        return Prices(self.triage_price_input_per_mtok, self.triage_price_output_per_mtok)
 
     @property
     def prices(self) -> Prices | None:
@@ -144,6 +163,7 @@ class TurnResult:
     # input_tokens above counts only uncached input, as the API reports it; cached input is counted here.
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+    route: str | None = None   # with the 'route' pattern: where the request was sent (see agent/patterns.py)
 
     @property
     def total_tokens(self) -> int:
@@ -165,24 +185,29 @@ def run_turn(
     messages.append({"role": "user", "content": user_text})
     tracer.event("turn_start", trace_version=TRACE_VERSION, model=config.model, user_text=user_text, pattern=config.pattern)
 
-    tools = registry.api_specs() + [SUBMIT_SPEC]
     patterns = config.patterns
+    route: str | None = None
+    spent = 0.0
+    unpriced_calls = 0
     steps = nudges = revisions = in_tokens = out_tokens = llm_ms = tool_ms = cache_read = cache_write = 0
     last_text = api_error_text = ""
     turn_began = time.perf_counter()
-    prices = config.prices
     system = system_prompt
     plan: Plan | None = None
     extra_warnings: list[str] = []
 
+    def prices_for(model: str) -> Prices | None:
+        return config.triage_prices if model == config.triage_model and model != config.model else config.prices
+
     def cost() -> float | None:
-        return None if prices is None else prices.cost(in_tokens, out_tokens, cache_read, cache_write)
+        """What the turn has cost so far: each call at its own model's prices; None if any call could not be priced."""
+        return None if unpriced_calls or config.prices is None else spent
 
     def finish(status: Status, final: FinalResponse | None = None, text: str | None = None) -> TurnResult:
-        result = TurnResult(status, final, text, steps, in_tokens, out_tokens, cost(), llm_ms, tool_ms, cache_read, cache_write)
+        result = TurnResult(status, final, text, steps, in_tokens, out_tokens, cost(), llm_ms, tool_ms, cache_read, cache_write, route)
         tracer.event("turn_end", status=status, steps=steps, input_tokens=in_tokens,
                      output_tokens=out_tokens, cache_read_tokens=cache_read, cache_write_tokens=cache_write,
-                     cost_usd=result.cost_usd, llm_ms=llm_ms, tool_ms=tool_ms,
+                     cost_usd=result.cost_usd, llm_ms=llm_ms, tool_ms=tool_ms, route=route,
                      wall_ms=round((time.perf_counter() - turn_began) * 1000), text=text)
         return result
 
@@ -202,14 +227,16 @@ def run_turn(
         return None
 
     def ask(*, system: str, tools: list[dict[str, Any]], history: list[dict[str, Any]], purpose: str,
-            tool_choice: dict[str, Any] | None = None, cache: bool = True, max_tokens: int | None = None):
+            tool_choice: dict[str, Any] | None = None, cache: bool = True, max_tokens: int | None = None,
+            model: str | None = None):
         """One model call with all the accounting (steps, tokens, cost, time, trace). Returns (response, content),
         or None if the API failed (the failure is traced and ``api_error_text`` is set)."""
-        nonlocal steps, in_tokens, out_tokens, llm_ms, cache_read, cache_write, api_error_text
+        nonlocal steps, in_tokens, out_tokens, llm_ms, cache_read, cache_write, api_error_text, spent, unpriced_calls
+        model = model or config.model
         steps += 1
         began = time.perf_counter()
         kwargs: dict[str, Any] = dict(
-            model=config.model, max_tokens=max_tokens or config.max_output_tokens, system=system,
+            model=model, max_tokens=max_tokens or config.max_output_tokens, system=system,
             tools=_cacheable_tools(tools) if cache and config.prompt_caching else tools,
             messages=_cacheable_messages(history) if cache and config.prompt_caching else history,
         )
@@ -233,16 +260,52 @@ def run_turn(
         cache_write += step_write
         content = _blocks_to_params(response.content, tracer)
         calls = [b for b in content if b["type"] == "tool_use"]
+        call_prices = prices_for(model)
+        step_cost = None if call_prices is None else call_prices.cost(response.usage.input_tokens, response.usage.output_tokens, step_read, step_write)
+        if step_cost is None:
+            unpriced_calls += 1
+        else:
+            spent += step_cost
         tracer.event(
-            "llm_call", step=steps, model=config.model, response_id=getattr(response, "id", None),
+            "llm_call", step=steps, model=model, response_id=getattr(response, "id", None),
             stop_reason=response.stop_reason, purpose=purpose,
             input_tokens=response.usage.input_tokens, output_tokens=response.usage.output_tokens,
             cache_read_tokens=step_read, cache_write_tokens=step_write,
             latency_ms=latency_ms,
-            step_cost_usd=None if prices is None else prices.cost(response.usage.input_tokens, response.usage.output_tokens, step_read, step_write),
+            step_cost_usd=step_cost,
             total_cost_usd=cost(), text=[b["text"] for b in content if b["type"] == "text"], tool_calls=[b["name"] for b in calls],
         )
         return response, content
+
+    # -- pattern: route (multi-agent). A triage call that sees only the planner's words picks a specialist. ------------------------
+    if "route" in patterns:
+        triaged = ask(model=config.triage_model or config.model, system=TRIAGE_SYSTEM, tools=[TRIAGE_SPEC],
+                      history=[{"role": "user", "content": planner_context(messages[:start_len], user_text)}], purpose="triage",
+                      tool_choice={"type": "tool", "name": TRIAGE_TOOL}, cache=False, max_tokens=300)
+        if triaged is None:
+            return finish("api_error", text=api_error_text)
+        call = next((b for b in triaged[1] if b["type"] == "tool_use" and b["name"] == TRIAGE_TOOL), None)
+        decision = parse_triage(call["input"]) if call else None
+        if decision is None:
+            tracer.event("route_invalid")              # carry on as the full agent: a bad triage must not block the planner
+            route = "plan"
+        else:
+            route = decision.route
+            tracer.event("route", route=route, reason=decision.reason)
+        if route in ("clarify", "decline_commit"):
+            # Answered without the agent: a question the triage wrote, or a fixed refusal. No tools, no further model call.
+            assert decision is not None
+            final = FinalResponse(
+                summary="I need one detail before I change anything." if route == "clarify" else COMMIT_REFUSAL,
+                clarifying_question=decision.question if route == "clarify" else None,
+            )
+            messages.append({"role": "assistant", "content": [{"type": "text", "text": final.clarifying_question or final.summary}]})
+            return finish("answered", final=final)
+        if route == "read":
+            registry = registry.scoped(READ_ONLY_TOOLS)
+            system_prompt = system_prompt + READER_ROLE
+            system = system_prompt
+    tools = registry.api_specs() + [SUBMIT_SPEC]
 
     # -- pattern: plan. One forced call before acting; the plan guides this turn only and is not stored in the history. ---------
     if "plan" in patterns:
@@ -341,7 +404,7 @@ def run_turn(
                 kpi_before=outcome.kpi_before,
                 kpi_after=outcome.kpi_after,
                 needs_approval=outcome.needs_approval,
-                warnings=[*outcome.warnings, *extra_warnings],
+                warnings=[*outcome.warnings, *extra_warnings, *(guard_warnings(payload.summary, outcome) if config.answer_guards else [])],
                 goal=outcome.goal,
             )
             recap = final.clarifying_question or final.summary
@@ -353,6 +416,18 @@ def run_turn(
                           for b in m["content"] if b.get("type") == "tool_use" and b["name"] != SUBMIT]
                 tracer.event("plan_adherence", **plan_adherence([s.tool for s in plan.steps if s.tool != SUBMIT], actual))
             return finish("answered", final=final)
+
+
+def guard_warnings(summary: str, outcome: DraftOutcome) -> list[str]:
+    """Warnings shown beside an answer whose words contradict what the harness knows. They never change or block the answer:
+    the model's text stays as written, and the planner sees the contradiction next to it."""
+    found: list[str] = []
+    if claims_plan_is_live(summary):
+        found.append(LIVE_CLAIM_WARNING)
+    late = outcome.kpi_after.late_order_ids if outcome.kpi_after is not None else []
+    if late and claims_nothing_is_late(summary):
+        found.append(f"The answer says no order is late, but the solver's result for this draft shows {len(late)} late: {', '.join(late)}.")
+    return found
 
 
 _CACHE = {"type": "ephemeral"}

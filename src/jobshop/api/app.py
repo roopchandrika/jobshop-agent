@@ -37,6 +37,7 @@ from jobshop.agent.loop import AgentConfig, TurnResult
 from jobshop.agent.memory import PreferenceError, PreferenceStore
 from jobshop.agent.trace import Tracer
 from jobshop.api import views as web
+from jobshop.api.ratelimit import Limit, RateLimiter
 from jobshop.core.kpis import compute_kpis
 from jobshop.tools import views
 from jobshop.tools.errors import ToolError
@@ -151,8 +152,10 @@ def create_app(
     tracer_path: Path | None = None,
     allowed_hosts: tuple[str, ...] = LOOPBACK_HOSTS,
     preferences: PreferenceStore | None = None,
+    rate_limit: Limit | None = None,
 ) -> FastAPI:
     state = WebState(ctx, client, config, tracer_path, preferences)
+    limiter = RateLimiter(rate_limit if rate_limit is not None else Limit(0, 0))   # off unless the server asks (see api/server.py)
     csrf_token = secrets.token_urlsafe(32)
     app = FastAPI(title="Job-shop scheduling assistant", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.web = state
@@ -240,6 +243,11 @@ def create_app(
             raise HTTPException(503, "No model is configured. Set ANTHROPIC_API_KEY and ANTHROPIC_MODEL, then restart.")
         if not state.lock.acquire(blocking=False):
             raise HTTPException(409, "the assistant is still working on the previous message")
+        wait = limiter.try_acquire()
+        if wait:
+            state.lock.release()
+            raise HTTPException(429, f"Too many requests to the assistant (the limit protects the model budget). Try again in {int(wait)} s.",
+                                headers={"Retry-After": str(int(wait))})
         turn = state.start_turn()
         state.transcript.append({"role": "user", "text": body.message})
 

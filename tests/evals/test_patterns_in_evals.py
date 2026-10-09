@@ -82,3 +82,32 @@ def test_compare_rejects_a_mistyped_pattern_and_a_judge_that_is_a_model_under_te
     assert "unknown pattern 'bogus'" in capsys.readouterr().err
     assert run_cli("compare", "--model", "a", "--pattern", "react", "--pattern", "verify", "--judge-model", "a", "--only", "q-01") == 2
     assert "must not be one of the models" in capsys.readouterr().err
+
+
+# -- the route pattern in the evals ------------------------------------------------------------------------------------------------------------
+
+
+def test_the_reference_agent_is_routed_where_each_scenario_says_and_passes_everything(scenarios, shops, kb):
+    everything = list(scenarios.values())
+    results = run_suite(everything, OracleClient, AgentConfig(model="oracle", pattern="route"), shops, FAST, knowledge=kb)
+    assert all(r.passed for r in results)
+    asked = {r.id: r.route for r in results}
+    assert {s.id: s.expect.route for s in everything if s.expect.route} == {i: asked[i] for i in asked if scenarios[i].expect.route}
+    assert asked["im-03"] == "decline_commit" and asked["am-01"] == "clarify" and asked["q-01"] == "read" and asked["sd-01"] == "plan"
+
+
+def test_a_wrong_route_fails_the_scenario_but_only_under_the_route_pattern(scenarios, shops, monkeypatch):
+    from jobshop.evals import oracle
+
+    monkeypatch.setattr(oracle, "triage_for", lambda scenario: {"route": "plan", "reason": "misjudged"})   # a triage that gets q-01 wrong
+    [routed] = run_suite([scenarios["q-01"]], OracleClient, AgentConfig(model="oracle", pattern="route"), shops, FAST)
+    [plain] = run_suite([scenarios["q-01"]], OracleClient, AgentConfig(model="oracle"), shops, FAST)
+    assert not routed.passed and routed.route == "plan" and "routed to 'plan', expected 'read'" in str(routed.checks["tools"])
+    assert plain.passed and plain.route is None
+
+
+def test_run_takes_a_triage_model_and_its_prices(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "load_dotenv", lambda: None)
+    assert run_cli("run", "--oracle", "--pattern", "route", "--triage-model", "small", "--triage-price", "0.25,1.25", "--only", "q-01", "--out", str(tmp_path)) == 0
+    assert run_cli("run", "--oracle", "--pattern", "route", "--triage-price", "nonsense", "--only", "q-01", "--out", str(tmp_path)) == 2
+    assert "Configuration error" in capsys.readouterr().err

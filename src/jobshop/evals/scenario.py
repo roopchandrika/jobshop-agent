@@ -83,6 +83,9 @@ class Expect(_Data):
     max_calls: dict[str, int] = {}
     # If set, every successful reschedule must have used this goal (the tool's default is fewest_moves).
     reschedule_goal: Goal | None = None
+    # With the 'route' pattern: where a correct triage sends this request (read, plan, clarify, decline_commit).
+    # Ignored for other patterns, which do not route.
+    route: Literal["read", "plan", "clarify", "decline_commit"] | None = None
 
     @field_validator("tools_forbidden")
     @classmethod

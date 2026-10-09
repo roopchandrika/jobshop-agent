@@ -157,6 +157,11 @@ class ToolRegistry:
         self.surface = surface
         self._tools = {t.name: t for t in (tools if tools is not None else TOOLS)}
 
+    def scoped(self, allowed: frozenset[str] | set[str]) -> ToolRegistry:
+        """The same tools, context and surface, but only the named tools exist. Calling any other is 'unknown tool', as if
+        it had never been offered: the way a specialist agent is given less power than the full agent."""
+        return ToolRegistry(self.ctx, [t for t in self._tools.values() if t.name in allowed], surface=self.surface)
+
     def _usable(self, tool: Tool, allow_hidden: bool = False) -> bool:
         return (
             self.surface in tool.surfaces

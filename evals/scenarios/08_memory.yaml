@@ -8,6 +8,7 @@ scenarios:
     request: "M2 is down from 11:00 to 14:00."
     expect:
       outcome: proposal
+      route: plan
       changes: {downtimes: [{machine: M2, start: "2026-01-05 11:00", end: "2026-01-05 14:00"}]}
       tools_required: [create_draft, simulate_downtime, reschedule, compare_schedules]
       max_calls: {reschedule: 1}
@@ -51,6 +52,7 @@ scenarios:
     request: "What is the status of order O-101?"
     expect:
       outcome: no_action
+      route: read
       tools_any: [[get_order, list_orders, get_schedule]]
       tools_forbidden: ["@edits"]
     judge:

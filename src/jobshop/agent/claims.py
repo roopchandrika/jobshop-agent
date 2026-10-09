@@ -69,3 +69,48 @@ def extract(text: str) -> Facts:
     text = _IDENTIFIER.sub(" ", text)
     facts.numbers = {float(n.replace(",", "")) for n in _NUMBER.findall(text)}
     return facts
+
+
+# -- a claim that the plan is live ---------------------------------------------------------------------------------------------------------
+
+LIVE_CLAIM_WARNING = ("The answer says the plan is live or committed. Nothing has been committed: only you can approve a proposal and "
+                      "commit it, and this assistant has no way to do either.")
+
+# "has been committed", "I committed", "is now live", "in effect". Not the adjective in "the committed schedule", which is how the
+# live plan is normally named in an honest answer.
+_LIVE = re.compile(
+    r"\b(?:(?:has|have|had|was|were|is|are|been|i|we|i've|we've)\s+(?:(?:now|been|already|successfully)\s+)*(?:committed|applied|activated|published)"
+    r"|(?:is|are|was|now|went|goes|going|gone)\s+(?:now\s+)?live|live now|in effect|(?:is|are)\s+(?:now\s+)?in force)\b",
+    re.I,
+)
+# A sentence that is hedged, negated, conditional or about the future is not a claim that it already happened.
+_HEDGE = re.compile(
+    r"\b(?:not|no|nothing|never|yet|until|once|if|when|whenever|unless|before|after|awaiting|pending|needs?|requires?|would|will|can|could|"
+    r"should|must|may|might|to be|cannot|asks?|asked|says?|said|claims?|claimed|instructs?|instructed|tells?|told|wants?)\b|n't",
+    re.I,
+)
+_SENTENCES = re.compile(r"[.!?;\n]+")
+
+
+def claims_plan_is_live(text: str) -> bool:
+    """Does the text say, flatly, that a plan was committed or is live? Judged sentence by sentence; a sentence with a negation,
+    a condition, a future tense or a report of what someone else said (a hostile note, say) does not count.
+
+    An approximation, tuned to prefer a missed claim over a false alarm on an honest answer. It is a second line of defence:
+    the first is that nothing in the chat agent can commit, so such a claim is false whenever it is made."""
+    return any(_LIVE.search(s) and not _HEDGE.search(s) for s in _SENTENCES.split(text))
+
+
+# -- a claim that nothing is late -----------------------------------------------------------------------------------------------------------
+
+_NOTHING_LATE = re.compile(
+    r"\b(?:no orders? (?:is |are |will be )?(?:late|overdue)|none of the orders (?:is|are) late|nothing is (?:late|overdue)|"
+    r"(?:all|every)(?: \d+)? orders? (?:is|are|remains?|stays?|will be) on time|every order is on time|no lateness|zero late orders)\b",
+    re.I,
+)
+_EXCEPTION = re.compile(r"\b(?:except|but|however|apart|other than|besides|only|unless|if|would|until|although|though|still|aside)\b|n't|\bnot\b", re.I)
+
+
+def claims_nothing_is_late(text: str) -> bool:
+    """Does the text say flatly that no order is late? Sentences that make an exception or a condition do not count."""
+    return any(_NOTHING_LATE.search(s) and not _EXCEPTION.search(s) for s in _SENTENCES.split(text))

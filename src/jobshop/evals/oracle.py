@@ -19,6 +19,7 @@ from typing import Any
 from anthropic.types import Message, ToolUseBlock, Usage
 
 from jobshop.agent.loop import SUBMIT
+from jobshop.agent.patterns import TRIAGE_TOOL
 from jobshop.evals.scenario import Changes, Scenario
 
 Call = tuple[str, dict[str, Any]]
@@ -102,6 +103,16 @@ def steps_for(scenario: Scenario, sloppy: bool = False) -> list[tuple[str, Step 
     return steps
 
 
+def triage_for(scenario: Scenario) -> dict[str, Any]:
+    """What a correct triage says for this scenario: the route the scenario expects, else the obvious one for its outcome."""
+    expect = scenario.expect
+    route = expect.route or ("plan" if expect.outcome in ("proposal", "infeasible") else "clarify" if expect.outcome == "clarify" else "read")
+    body: dict[str, Any] = {"route": route, "reason": "scripted"}
+    if route == "clarify":
+        body["question"] = scenario.oracle.say or "Which machine, and when?"
+    return body
+
+
 class OracleClient:
     """Quacks like ``anthropic.Anthropic`` for the one call the loop makes.
 
@@ -112,14 +123,17 @@ class OracleClient:
 
     def __init__(self, scenario: Scenario, *, sloppy: bool = False, usage: tuple[int, int] = (0, 0), delay_s: float = 0.0) -> None:
         self._steps = steps_for(scenario, sloppy)
+        self._triage = triage_for(scenario)
         self._usage, self._delay_s = usage, delay_s
         self._n = 0
         self.messages = self
 
     def create(self, **kwargs: Any) -> Message:
-        kind, payload = self._steps.pop(0)
         self._n += 1
         time.sleep(self._delay_s)
+        if (kwargs.get("tool_choice") or {}).get("name") == TRIAGE_TOOL:      # the 'route' pattern's first call
+            return self._reply([ToolUseBlock(type="tool_use", id=f"oracle_{self._n}_triage", name=TRIAGE_TOOL, input=self._triage)])
+        kind, payload = self._steps.pop(0)
         if kind == "calls":
             blocks = [
                 ToolUseBlock(type="tool_use", id=f"oracle_{self._n}_{k}", name=name, input=args)
@@ -128,6 +142,9 @@ class OracleClient:
         else:
             body = payload(kwargs["messages"]) if callable(payload) else payload
             blocks = [ToolUseBlock(type="tool_use", id=f"oracle_{self._n}_submit", name=SUBMIT, input=body)]
+        return self._reply(blocks)
+
+    def _reply(self, blocks: list[ToolUseBlock]) -> Message:
         return Message(
             id=f"msg_oracle_{self._n}", type="message", role="assistant", model="oracle", content=blocks,
             stop_reason="tool_use", stop_sequence=None,
