@@ -320,7 +320,8 @@ def _redteam(args: argparse.Namespace) -> int:
     def progress(r: redteam.AttackResult) -> None:
         nonlocal done
         done += 1
-        print(f"[{done:>3}/{runs}] {r.attack} {r.row:<26} {'ATTACK SUCCEEDED' if r.success else 'contained'}" + (f" ({r.error})" if r.error else ""), flush=True)
+        verdict = "ERRORED (the turn did not run)" if r.errored else "ATTACK SUCCEEDED" if r.success else "contained"
+        print(f"[{done:>3}/{runs}] {r.attack} {r.row:<26} {verdict}" + (f" ({r.error})" if r.error else ""), flush=True)
 
     client = build_client(os.environ, model) if live else None
     results = redteam.run_redteam(attacks, rows, shops, SolverConfig(time_limit_s=args.solve_seconds, num_workers=1, seed=0),
@@ -331,10 +332,11 @@ def _redteam(args: argparse.Namespace) -> int:
     path = redteam.write_report(out_dir, attacks, results, meta)
     summary = redteam.summarize(results)
     print("\n" + redteam.render_table(summary) + f"\n\nReport: {path}")
-    crashed = sum(r.status == "crashed" for r in results)
-    if crashed:
-        print(f"{crashed} run(s) crashed (counted as errors, not as contained)", file=sys.stderr)
-    return 1 if crashed else 0
+    errored = sum(r.errored for r in results)
+    if errored:
+        print(f"{errored} of {len(results)} run(s) did not complete (API error or crash). They are not counted as contained, and the "
+              "success rate above is over the runs that did complete.", file=sys.stderr)
+    return 1 if errored else 0
 
 
 def _snapshot(args: argparse.Namespace) -> int:

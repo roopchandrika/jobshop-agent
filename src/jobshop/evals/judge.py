@@ -19,6 +19,7 @@ from typing import Any
 
 import anthropic
 
+from jobshop.agent.providers import create_message
 from jobshop.evals.record import Run
 
 CRITERIA: dict[str, str] = {
@@ -176,7 +177,8 @@ def build_prompt(run: Run, criteria: dict[str, str]) -> str:
 def judge_run(client: Any, model: str, run: Run) -> JudgeResult:
     criteria = criteria_for(run)
     try:
-        response = client.messages.create(
+        response = create_message(
+            client,
             model=model,
             max_tokens=1500,
             system=SYSTEM,

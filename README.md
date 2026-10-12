@@ -10,7 +10,7 @@ and approves it.
 This is a portfolio project, built to learn AI engineering. The agent's tool-use loop is written by hand
 on the Anthropic SDK (no agent framework), and all data is synthetic.
 
-> **Status.** Built and tested: 1327 automated tests, CI on every push. One real-model evaluation exists
+> **Status.** Built and tested: 1341 automated tests, CI on every push. One real-model evaluation exists
 > (29 scenarios, no judge: 22/29, every miss in one check that has since been narrowed). A judged, repeated
 > two-model comparison was started and stopped early to save API credit, so **no comparison has been
 > completed**. See [What is and isn't verified](#what-is-and-isnt-verified).
@@ -207,14 +207,15 @@ Reasons, trade-offs and a glossary: [docs/DESIGN.md](docs/DESIGN.md). Threat mod
 | Verified | Not verified |
 |---|---|
 | The solver against an independent validator and recomputation | The LLM judge on a real model |
-| Tools, loop, approval, store and the MCP server over real stdio, by 1327 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
+| Tools, loop, approval, store and the MCP server over real stdio, by 1341 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
 | The web API (CSRF, Origin, Host, CSP, approval fingerprint) over a real socket | Claude Desktop/Code connecting to the MCP server |
 | The UI in a real browser: chat, proposal, Approve, charts, dark mode, phone width | The Approve flow with a real model; screen readers; browsers other than one |
 | A real model on 29 scenarios, deterministic checks only (above) | The changes since then (goal option, caching, plant documents, new scenarios) over the full suite on a real model; whether a real model searches, cites and stays grounded, including declining to answer from a nearest-but-irrelevant passage |
 | Safety, eval and API code by mutation testing: guards broken on purpose, a test failed for each | A security audit: this is a local single-user app, not hardened for a network |
 | Memory, patterns and extraction logic with scripted models; the web layer under concurrent load (20 users: one chat accepted, 19 told to wait, no errors); the event stream live on a real socket | Any of those on a real model: whether stored preferences are followed, whether `verify`/`reflect`/`plan` help, how a model does on the emails |
 | Trace export against the OTLP JSON structure | The container image (never built: Docker was not running); trace export into a real tracing backend |
-| Routing, the answer guards, the rate limit, the prompt snapshot and the red-team scoring with scripted models; the red team's 12 attacks against a fully obedient scripted model (live plan never changed) | Any of it on a real model: how often a real model is taken in by the attacks, whether the triage routes correctly, whether routing saves money. The Ollama adapter against a real Ollama (none installed here) |
+| Routing, the answer guards, the rate limit, the prompt snapshot and the red-team scoring with scripted models; the red team's 12 attacks against a fully obedient scripted model (live plan never changed) | Whether routing saves money or improves answers; the judge, patterns, preferences and extractor on a real model. The Ollama adapter against a real Ollama (none installed here) |
+| The 12 red-team attacks read by `claude-sonnet-5-5`, `react` and `route`, 2 runs each (48 runs): 0 succeeded, live plan never changed. One real scenario passes after the fixes below | Run-to-run variation beyond 2 runs; attack `rt-05` was never read by the model, so it is untested live; under `route` a mixed "change this and apply it" request gets only the fixed refusal |
 
 **Limits:** one planner and one shop; state is in memory (web) or a JSON file (MCP), with no accounts or
 history; at the default size nothing is proven optimal in 30 s; setup times, labour and preemption are out

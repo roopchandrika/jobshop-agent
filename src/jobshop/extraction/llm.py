@@ -21,6 +21,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from jobshop.agent.providers import create_message
 from jobshop.extraction.schema import Extraction
 
 TOOL = "submit_extraction"
@@ -73,7 +74,7 @@ def build_request(email: str, now: datetime, families: list[str]) -> dict[str, A
 
 
 def extract_with_llm(client: Any, model: str, email: str, now: datetime, families: list[str], max_tokens: int = 600) -> LlmExtraction:
-    response = client.messages.create(model=model, max_tokens=max_tokens, **build_request(email, now, families))
+    response = create_message(client, model=model, max_tokens=max_tokens, **build_request(email, now, families))
     calls = [b for b in response.content if getattr(b, "type", None) == "tool_use" and b.name == TOOL]
     if not calls:
         raise ExtractionError("the model did not call submit_extraction")

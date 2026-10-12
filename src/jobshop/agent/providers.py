@@ -36,6 +36,51 @@ DEFAULT_NUM_CTX = 16384
 DEFAULT_TIMEOUT_S = 300.0     # a local model on a laptop can be slow, especially on the first call (it loads the weights)
 
 
+# Models that answered "tool_choice ... not supported for this model", so later forced calls go straight to the fallback.
+_NO_FORCED_TOOL: set[str] = set()
+
+
+def forget_unsupported_models() -> None:
+    """Clear what was learned about which models refuse a forced tool (for tests)."""
+    _NO_FORCED_TOOL.clear()
+
+
+def _without_forcing(kwargs: Mapping[str, Any], forced: str) -> dict[str, Any]:
+    """The same request with no ``tool_choice``: only the forced tool is offered and the system prompt says to call it."""
+    out = {k: v for k, v in kwargs.items() if k != "tool_choice"}
+    out["tools"] = [t for t in kwargs.get("tools", []) if t["name"] == forced]
+    instruction = f"You must respond now by calling the tool '{forced}'. Do not answer in prose."
+    system = kwargs.get("system", "")
+    if isinstance(system, str):
+        out["system"] = f"{system}\n\n{instruction}"
+    else:
+        out["system"] = [*system, {"type": "text", "text": instruction}]
+    return out
+
+
+def create_message(client: Any, **kwargs: Any) -> Any:
+    """``client.messages.create``, except that a forced tool call is approximated on a model that refuses ``tool_choice``.
+
+    Some models answer 400 "tool_choice: type 'tool' ... not supported for this model" (found on the first live run with
+    ``claude-sonnet-5-5``: every forced call, the triage, plan, review, judge and extraction among them, failed). The fallback
+    offers only the forced tool and says in the system prompt that it must be called; the loop already copes with a model
+    that still answers in prose. The model is remembered, so the refusal costs one round trip per process, not one per call."""
+    choice = kwargs.get("tool_choice")
+    forced = choice.get("name") if isinstance(choice, dict) and choice.get("type") == "tool" else None
+    model = kwargs.get("model")
+    if forced is None:
+        return client.messages.create(**kwargs)
+    if model in _NO_FORCED_TOOL:
+        return client.messages.create(**_without_forcing(kwargs, forced))
+    try:
+        return client.messages.create(**kwargs)
+    except anthropic.BadRequestError as e:
+        if "tool_choice" not in str(e):
+            raise
+        _NO_FORCED_TOOL.add(model)
+        return client.messages.create(**_without_forcing(kwargs, forced))
+
+
 def is_open_model(model: str | None) -> bool:
     return bool(model) and model.startswith(OLLAMA_PREFIX)
 

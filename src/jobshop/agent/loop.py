@@ -36,6 +36,7 @@ from jobshop.agent.patterns import (
     verify_message,
 )
 from jobshop.agent.pricing import Prices
+from jobshop.agent.providers import create_message
 from jobshop.agent.trace import TRACE_VERSION, Tracer
 from jobshop.tools.errors import ToolError
 from jobshop.tools.functions import DraftId
@@ -243,7 +244,7 @@ def run_turn(
         if tool_choice is not None:
             kwargs["tool_choice"] = tool_choice
         try:
-            response = client.messages.create(**kwargs)
+            response = create_message(client, **kwargs)
         except anthropic.APIError as e:
             del messages[start_len:]  # nothing from this turn happened as far as the model knows
             api_error_text = f"The model API failed: {type(e).__name__}: {e}"

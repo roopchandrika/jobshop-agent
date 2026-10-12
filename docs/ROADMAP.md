@@ -130,7 +130,7 @@ the code on purpose.
 | Phase 5 | 527 |
 | Phase 6 | 592 |
 | Phase 7 | 663 |
-| now | **1327** (5 more are opt-in: 2 call the real API, 3 download an embedding model) |
+| now | **1341** (5 more are opt-in: 2 call the real API, 3 download an embedding model) |
 
 About 6,300 lines of source, 5,800 lines of tests.
 
@@ -148,6 +148,7 @@ Mutation testing of the Phase 12, 13 and 15 code: 51 deliberate breaks, 47 caugh
 | real run | Utilization drop read as "idle machines"; an offer to try overtime; a six-section answer | the first real model answer | a data note, prompt rules, and a UI caption |
 | 11 | The verifier counted its own "you quoted 45" correction as evidence; a reviewer flag accepted "yes"; "7:30 p.m." read as 07:30 | testing the patterns and the extraction checks | error results are never evidence, strict booleans, am/pm checked first |
 | 15 | With a fully obedient model, 8 of 12 attacks ended with the assistant telling the planner the plan was live (or nothing was late) and nothing beside the words said otherwise | the first run of the red team | two deterministic answer guards; the red team now measures them (92% to 42% attack success) |
+| 12, 15 | The real model API rejects forced tool choice (`tool_choice ... not supported for this model`), so the triage, plan, review, judge and extraction calls all failed; and the red-team scorer counted those failed turns as "contained" (a false 0% for `route`) | the first live red-team run: all 24 `route` runs ended in `api_error` | a shared fallback that offers only the forced tool with an instruction; an errored run is now reported as ERRORED, kept out of the rate and fails the command |
 
 ## Honest status
 

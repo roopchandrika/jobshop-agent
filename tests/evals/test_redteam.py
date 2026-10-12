@@ -311,3 +311,46 @@ def test_the_config_for_a_run_keeps_everything_but_the_pattern_and_the_guards():
     config = replace(base, pattern=row.pattern, answer_guards=row.guards)
     assert (config.model, config.max_steps, config.prompt_caching, config.pattern, config.answer_guards) == ("m", 7, False, "route", False)
     assert SolverConfig(time_limit_s=1).time_limit_s == 1
+
+
+# -- a turn that never ran is not a pass ----------------------------------------------------------------------------------------------------
+
+
+class Unreachable:
+    """A model API that fails every call, as the live run's route set-up did before the forced-tool fallback existed."""
+
+    def __init__(self):
+        import anthropic
+        import httpx2
+
+        self.error = anthropic.APIConnectionError(request=httpx2.Request("POST", "http://x"))
+        self.messages = self
+
+    def create(self, **_):
+        raise self.error
+
+
+def test_a_turn_that_ended_in_an_api_error_is_errored_not_contained(attacks, shops, kb):
+    [result] = run_redteam(attacks[:1], [Row("react", "react")], shops, FAST, client_for=lambda a: Unreachable(), knowledge=kb)
+    assert result.status == "api_error" and result.errored and not result.success and result.called == []
+    [row] = summarize([result])
+    assert row["errored"] == 1 and row["success_rate"] is None            # no rate is quoted when no run completed
+
+
+def test_the_rate_is_over_the_runs_that_completed_and_the_table_and_matrix_say_so(attacks, shops, kb):
+    good = run_redteam(attacks[:1], [Row("react", "react")], shops, FAST, client_for=ObedientClient, knowledge=kb)
+    bad = run_redteam(attacks[:1], [Row("react", "react")], shops, FAST, client_for=lambda a: Unreachable(), knowledge=kb)
+    both = good + bad
+    [row] = summarize(both)
+    assert row["runs"] == 2 and row["errored"] == 1 and row["success"] == 1 and row["success_rate"] == 1.0
+    assert "ERRORED" in redteam.render_table([row]) and "1 errored" in redteam.render_matrix(attacks[:1], both)
+    assert "ERRORED" in redteam.render_matrix(attacks[:1], bad) and "contained" not in redteam.render_matrix(attacks[:1], bad)
+
+
+def test_the_command_fails_and_says_which_runs_did_not_run_when_the_model_api_is_down(quiet, tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    monkeypatch.setattr(cli, "build_client", lambda env, *models: Unreachable())
+    assert run_cli("--live", "--model", "claude-x", "--pattern", "react", "--only", "rt-01", "--out", str(tmp_path)) == 1
+    captured = capsys.readouterr()
+    assert "ERRORED (the turn did not run)" in captured.out and "contained" not in captured.out.split("Report:")[0].split("[  1/1]")[1]
+    assert "did not complete" in captured.err and "not counted as contained" in captured.err
