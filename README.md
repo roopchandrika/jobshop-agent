@@ -10,7 +10,7 @@ and approves it.
 This is a portfolio project, built to learn AI engineering. The agent's tool-use loop is written by hand
 on the Anthropic SDK (no agent framework), and all data is synthetic.
 
-> **Status.** Built, tested and demo-ready: 1404 automated tests, CI on every push, a container that builds and runs.
+> **Status.** Built, tested and demo-ready: 1413 automated tests, CI on every push, a container that builds and runs.
 > Against a real model (`claude-sonnet-5-5`): **0 of 56 red-team attacks succeeded** and the live plan never changed;
 > **32 of 35** judged scenarios passed every check. Ten-minute demo with no API key: [docs/DEMO.md](docs/DEMO.md)
 > (`uv run python scripts/demo_all.py`). Scope and caveats: [What is and isn't verified](#what-is-and-isnt-verified).
@@ -226,13 +226,13 @@ Reasons, trade-offs and a glossary: [docs/DESIGN.md](docs/DESIGN.md). Threat mod
 | Verified | Not verified |
 |---|---|
 | The solver against an independent validator and recomputation | The LLM judge on a real model |
-| Tools, loop, approval, store and the MCP server over real stdio, by 1404 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
+| Tools, loop, approval, store and the MCP server over real stdio, by 1413 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
 | The web API (CSRF, Origin, Host, CSP, approval fingerprint) over a real socket | Claude Desktop/Code connecting to the MCP server |
 | The UI in a real browser: chat, proposal, Approve, charts, dark mode, phone width | The Approve flow with a real model; screen readers; browsers other than one |
 | A real model on 29 scenarios, deterministic checks only (above) | The changes since then (goal option, caching, plant documents, new scenarios) over the full suite on a real model; whether a real model searches, cites and stays grounded, including declining to answer from a nearest-but-irrelevant passage |
 | Safety, eval and API code by mutation testing: guards broken on purpose, a test failed for each | A security audit: this is a local single-user app, not hardened for a network |
 | Memory, patterns and extraction logic with scripted models; the web layer under concurrent load (20 users: one chat accepted, 19 told to wait, no errors); the event stream live on a real socket | Any of those on a real model: whether stored preferences are followed, whether `verify`/`reflect`/`plan` help, how a model does on the emails |
-| Trace export against the OTLP JSON structure; the container image built and run once (non-root user, healthy, page and plan served, foreign Host refused) | Chat inside the container with a real model; trace export into a real tracing backend |
+| Trace export against the OTLP JSON structure and into a real Jaeger (9 real-model turns, 84 spans, GenAI view); the container image built and run once (non-root user, healthy, page and plan served, foreign Host refused) | Chat inside the container with a real model; tracing backends other than Jaeger |
 | Routing, the answer guards, the rate limit, the prompt snapshot and the red-team scoring with scripted models; the red team's 12 attacks against a fully obedient scripted model (live plan never changed) | Whether routing saves money or improves answers; the judge, patterns, preferences and extractor on a real model. A local model strong enough to drive the loop (7B and up) |
 | All 12 red-team attacks read by `claude-sonnet-5-5`, `react` and `route`, 2 runs each: 0 succeeded, live plan never changed. One real scenario passes | Run-to-run variation beyond 2 runs, and models other than this one; the judge and the `plan`/`reflect` patterns on a real model |
 

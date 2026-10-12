@@ -35,7 +35,7 @@ the code on purpose.
 | 11 | Agent patterns: plan, verify, reflect (combinable), pattern comparison in the evals | done and tested; **quality of each pattern unmeasured** (needs paid runs) | `f2c7414` |
 | 12 | Multi-agent routing: a triage (on a cheaper model if wanted) sends questions to a read-only reader, vague requests to a question, "commit it" to a fixed refusal; per-call pricing for two models | done and tested; **accuracy and saving on a real model unmeasured** | this commit |
 | 13 | Open models: an Ollama adapter behind the same loop, selected by an `ollama:` model name, mixable with Anthropic models | done; tested against a stub and run once against a real Ollama (works; `llama3.2:3b` could not finish the loop) | this commit |
-| 14 | Production basics: health check, streamed progress (SSE), Dockerfile, load test, OpenTelemetry trace export | done and tested; the image was built and run once (2026-10-12); a trace backend has not been tried | `f2c7414` |
+| 14 | Production basics: health check, streamed progress (SSE), Dockerfile, load test, OpenTelemetry trace export | done and tested; the image was built and run once (2026-10-12); traces loaded into a real Jaeger (2026-10-12) | `f2c7414` |
 | 15 | Safety depth: a 12-attack red team with a measured success rate, answer guards (found by the red team), web rate limit, a prompt-change gate | done and tested; the success rate is for an obedient scripted model, **not yet measured on a real model** | this commit |
 | 16 | Batch grading (Message Batches), a fine-tuning dataset export filtered by the evals, streamed answers in the web UI, an optional LangGraph port of the loop for comparison (48/48) | done and tested with scripted clients | `1fc2b19`, this commit |
 | next | Judged, repeated two-model comparison (Sonnet vs Opus, judge Fable) | **started, stopped at 46 of 234 runs to save credit; no report** | see [What is next](#what-is-next) |
@@ -131,7 +131,7 @@ the code on purpose.
 | Phase 5 | 527 |
 | Phase 6 | 592 |
 | Phase 7 | 663 |
-| now | **1404** (5 more are opt-in: 2 call the real API, 3 download an embedding model) |
+| now | **1413** (5 more are opt-in: 2 call the real API, 3 download an embedding model) |
 
 About 6,300 lines of source, 5,800 lines of tests.
 

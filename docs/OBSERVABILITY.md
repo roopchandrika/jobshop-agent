@@ -123,5 +123,7 @@ One turn is one trace; under it, one span per model call (start time worked back
 counts, cache tokens, cost, purpose) and one per tool call (name, duration, error status). A failed API call, a failing
 tool and a turn that never finished are error spans. Ids are derived from the session and turn, so exporting twice gives the
 same ids. **Only metadata is exported**: not the planner's words, the model's answers, tool arguments or tool results.
-Checked against the OTLP JSON structure by tests; not loaded into a real backend. See `docs/DESIGN.md` for the other
+Checked against the OTLP JSON structure by tests. Loaded into a real Jaeger (v2, `jaegertracing/jaeger`) on 2026-10-12: 9 real-model turns, 84 spans, queryable by service name, and Jaeger's GenAI view recognised the `gen_ai.*` attributes. Start one with
+`docker run -d --rm --name jaeger -p 127.0.0.1:16686:16686 -p 127.0.0.1:4318:4318 jaegertracing/jaeger:latest`, send with
+`trace_export FILE --send http://127.0.0.1:4318/v1/traces`, and open http://127.0.0.1:16686. See `docs/DESIGN.md` for the other
 production pieces (health check, streamed progress, container, load test).

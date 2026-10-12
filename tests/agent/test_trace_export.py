@@ -151,3 +151,90 @@ def test_the_command_writes_a_file_or_prints_and_reports_unreadable_input(ctx, r
     (tmp_path / "bad.jsonl").write_text("{broken")
     assert main([str(tmp_path / "bad.jsonl")]) == 1 and "cannot read" in capsys.readouterr().err
     assert main([str(tmp_path / "missing.jsonl")]) == 1
+
+
+# -- sending to a collector ---------------------------------------------------------------------------------------------------------------
+
+
+class Collector:
+    """A stand-in OTLP/HTTP collector on a free local port: records what is posted to it."""
+
+    def __init__(self, status=200):
+        import http.server
+        import threading
+
+        outer = self
+        self.posts: list[dict] = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                body = self.rfile.read(int(self.headers["Content-Length"]))
+                outer.posts.append({"path": self.path, "type": self.headers["Content-Type"], "doc": json.loads(body)})
+                self.send_response(status)
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+            def log_message(self, *a):
+                pass
+
+        self.server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_port}/v1/traces"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+@pytest.fixture
+def collector():
+    c = Collector()
+    yield c
+    c.close()
+
+
+def test_send_posts_the_otlp_json_to_the_collector_and_says_how_many_spans(ctx, registry, tmp_path, collector, capsys):
+    traced(ctx, registry, tmp_path, proposal_script())
+    assert main([str(tmp_path / "t.jsonl"), "--send", collector.url]) == 0
+    [post] = collector.posts
+    assert post["path"] == "/v1/traces" and post["type"] == "application/json"
+    spans = post["doc"]["resourceSpans"][0]["scopeSpans"][0]["spans"]
+    assert spans and f"sent {len(spans)} spans" in capsys.readouterr().out
+
+
+def test_what_is_sent_carries_no_content_only_metadata(ctx, registry, tmp_path, collector):
+    traced(ctx, registry, tmp_path, proposal_script(), user="Make O-101 urgent, my secret is hunter2.")
+    main([str(tmp_path / "t.jsonl"), "--send", collector.url])
+    sent = json.dumps(collector.posts[0]["doc"])
+    assert "hunter2" not in sent and "O-101 is now first in line" not in sent
+
+
+def test_send_can_be_combined_with_writing_a_file_and_then_prints_nothing_else(ctx, registry, tmp_path, collector, capsys):
+    traced(ctx, registry, tmp_path, proposal_script())
+    out = tmp_path / "spans.json"
+    assert main([str(tmp_path / "t.jsonl"), "-o", str(out), "--send", collector.url]) == 0
+    assert out.exists() and len(collector.posts) == 1
+    assert '"resourceSpans"' not in capsys.readouterr().out
+
+
+def test_an_unreachable_collector_is_a_reported_failure_not_a_traceback(ctx, registry, tmp_path, capsys):
+    traced(ctx, registry, tmp_path, proposal_script())
+    assert main([str(tmp_path / "t.jsonl"), "--send", "http://127.0.0.1:9/v1/traces"]) == 1
+    assert "could not send to" in capsys.readouterr().err
+
+
+def test_a_collector_that_refuses_is_a_reported_failure(ctx, registry, tmp_path, capsys):
+    refusing = Collector(status=503)
+    try:
+        traced(ctx, registry, tmp_path, proposal_script())
+        assert main([str(tmp_path / "t.jsonl"), "--send", refusing.url]) == 1
+        assert "could not send to" in capsys.readouterr().err
+    finally:
+        refusing.close()
+
+
+@pytest.mark.parametrize("url", ["file:///etc/passwd", "ftp://example.com/x", "gopher://x", "/v1/traces"])
+def test_only_http_addresses_are_accepted(ctx, registry, tmp_path, capsys, url):
+    traced(ctx, registry, tmp_path, proposal_script())
+    assert main([str(tmp_path / "t.jsonl"), "--send", url]) == 1
+    assert "not an http(s) address" in capsys.readouterr().err

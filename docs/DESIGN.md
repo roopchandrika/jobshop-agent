@@ -265,8 +265,9 @@ check has no false alarms on correct answers) but not `plan` or `reflect`, which
 - **Trace export:** `python -m jobshop.agent.trace_export FILE` writes OpenTelemetry spans (OTLP/JSON, no new dependency): one
   trace per turn, a span for each model call and tool call with real start times, tokens, model and cost. It exports
   metadata only, never the planner's words, answers, tool arguments or results. It has been checked against the OTLP JSON
-  structure by tests and **not loaded into a real tracing backend**; the attribute names follow OpenTelemetry's GenAI
-  conventions as they stood, which were still changing.
+  structure by tests and Loaded into a real Jaeger (v2, `jaegertracing/jaeger`) on 2026-10-12: 9 real-model turns, 84 spans, queryable by service name, and Jaeger's GenAI view recognised the `gen_ai.*` attributes. Send a trace with
+  `python -m jobshop.agent.trace_export FILE --send http://127.0.0.1:4318/v1/traces`. The attribute names follow OpenTelemetry's
+  GenAI conventions as they stood, which were still changing.
 - **Load test:** `scripts/load_test.py --spawn` starts the scripted demo and measures reads under concurrency, then has N
   users send a chat message at the same instant. On this machine with 20 users: 500 state reads and 500 health reads each
   with no errors (p50 about 88 ms, p95 about 105 ms), and of 20 simultaneous chat messages exactly 1 was accepted, 19 were

@@ -13,8 +13,10 @@ Left out on purpose: the planner's text, the model's answers, tool arguments and
 tool results (order notes, plans), and a tracing backend is usually a shared service. Metadata only.
 
 Honest limits: the attribute names follow OpenTelemetry's GenAI conventions as I know them, which were still evolving, so
-a newer backend may expect slightly different names; and the output has not been loaded into a real collector here,
-only checked against the OTLP JSON structure by tests.
+a newer backend may expect slightly different names. It was loaded into a real Jaeger v2 (9 real-model turns, 84 spans) and
+rendered in its GenAI view; other backends have not been tried.
+
+    python -m jobshop.agent.trace_export FILE --send http://127.0.0.1:4318/v1/traces
 """
 
 from __future__ import annotations
@@ -23,6 +25,8 @@ import argparse
 import hashlib
 import json
 import sys
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -147,10 +151,23 @@ def to_otlp(records: list[dict[str, Any]]) -> dict[str, Any]:
     }]}
 
 
+def send(otlp: dict[str, Any], url: str, timeout: float = 10.0) -> int:
+    """POST the spans to an OTLP/HTTP collector (for example ``http://127.0.0.1:4318/v1/traces``); returns the HTTP status.
+
+    Only http and https are accepted. The spans carry metadata only (see the module docstring), but a collector is somewhere
+    else, so the address is the operator's explicit choice: it is never read from a trace or a document."""
+    if not url.lower().startswith(("http://", "https://")):
+        raise ValueError(f"not an http(s) address: {url!r}")
+    request = urllib.request.Request(url, data=json.dumps(otlp).encode("utf-8"), headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(request, timeout=timeout) as response:   # noqa: S310 (scheme checked above)
+        return int(response.status)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m jobshop.agent.trace_export", description=__doc__.splitlines()[0])
     parser.add_argument("traces", nargs="+", type=Path)
     parser.add_argument("-o", "--output", type=Path, help="write here instead of printing")
+    parser.add_argument("--send", metavar="URL", help="post the spans to an OTLP/HTTP collector, e.g. http://127.0.0.1:4318/v1/traces")
     args = parser.parse_args(argv)
     records: list[dict[str, Any]] = []
     for path in args.traces:
@@ -159,11 +176,20 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, ValueError, KeyError) as e:
             print(f"{path}: cannot read ({type(e).__name__}: {e})", file=sys.stderr)
             return 1
-    text = json.dumps(to_otlp(records), indent=1)
+    otlp = to_otlp(records)
+    text = json.dumps(otlp, indent=1)
     if args.output:
         args.output.write_text(text, encoding="utf-8")
         print(f"wrote {args.output}")
-    else:
+    if args.send:
+        try:
+            status = send(otlp, args.send)
+        except (ValueError, OSError) as e:    # urllib.error.URLError is an OSError
+            print(f"could not send to {args.send}: {type(e).__name__}: {e}", file=sys.stderr)
+            return 1
+        spans = sum(len(ss["spans"]) for rs in otlp["resourceSpans"] for ss in rs["scopeSpans"])
+        print(f"sent {spans} spans to {args.send} (HTTP {status})")
+    if not args.output and not args.send:
         print(text)
     return 0
 

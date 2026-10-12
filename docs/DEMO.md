@@ -39,6 +39,18 @@ paraphrases, keywords 3 of 6. And a test fails if any prompt or tool description
 **6. Close (30 s).** "Hand-written tool loop on the Anthropic SDK, no framework; RAG, memory, structured extraction, agent
 patterns, multi-agent routing, an Ollama adapter, evals, red team, tracing, a container."
 
+## Optional: a real trace in Jaeger (two minutes, needs Docker)
+
+```bash
+docker run -d --rm --name jaeger -p 127.0.0.1:16686:16686 -p 127.0.0.1:4318:4318 jaegertracing/jaeger:latest
+uv run python -m jobshop.agent.trace_export logs/traces/<file>.jsonl --send http://127.0.0.1:4318/v1/traces
+# open http://127.0.0.1:16686, pick the service jobshop-agent, open a trace: model calls and tool calls as a waterfall
+docker stop jaeger
+```
+
+Say: "Every turn is an OpenTelemetry trace: a span per model call and per tool call, with tokens, model and latency. It carries
+metadata only, never the planner's words or the plans. Jaeger shows it in its GenAI view."
+
 ## What to show if you have the API cap raised
 
 ```bash
@@ -67,6 +79,6 @@ Measured offline:
 |---|---|
 | Attack success against a fully obedient scripted model | 92% (no guards) to 42% (answer guards) to 8% (routing) |
 | Retrieval of hard paraphrases | embeddings 6 of 6, keywords 3 of 6 |
-| Tests | 1404 pass; CI on every push |
+| Tests | 1413 pass; CI on every push |
 | Scenarios | 48; the reference agent passes 48/48 under `react`, `route` and `route+verify` |
 | Container | built and run: non-root, healthy, page and plan served, foreign Host header refused |
