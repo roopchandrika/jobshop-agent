@@ -11,6 +11,7 @@ checks, the guards and the plans are real. For the real-model results see docs/D
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -66,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\n{'=' * 100}\n  Done in {time.perf_counter() - started:.0f} s. "
           f"{'All sections passed.' if not failures else 'Sections that failed: ' + ', '.join(failures)}\n{'=' * 100}", flush=True)
 
+    shutil.rmtree(out, ignore_errors=True)       # the scratch results are not kept
     if not (args.quick or args.no_web):
         print(f"\nStarting the web UI with a scripted model and the real solver: http://127.0.0.1:{args.port}   (Ctrl+C to stop)\n"
               "Type anything: the canned turns show a proposal with a late order, a second proposal, and a clarifying question.", flush=True)

@@ -78,6 +78,6 @@ Measured offline:
 |---|---|
 | Attack success against a fully obedient scripted model | 30 attacks: 87% (no guards) to 43% (answer guards) to 3% (routing) |
 | Retrieval of hard paraphrases | embeddings 6 of 6, keywords 3 of 6 |
-| Tests | 1435 pass; CI on every push |
+| Tests | 1436 pass; CI on every push |
 | Scenarios | 48; the reference agent passes 48/48 under `react`, `route` and `route+verify` |
 | Container | built and run: non-root, healthy, page and plan served, foreign Host header refused |

@@ -131,7 +131,7 @@ the code on purpose.
 | Phase 5 | 527 |
 | Phase 6 | 592 |
 | Phase 7 | 663 |
-| now | **1435** (5 more are opt-in: 2 call the real API, 3 download an embedding model) |
+| now | **1436** (5 more are opt-in: 2 call the real API, 3 download an embedding model) |
 
 About 6,300 lines of source, 5,800 lines of tests.
 

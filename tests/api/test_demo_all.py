@@ -55,3 +55,18 @@ def test_pause_waits_for_enter_before_each_section(demo, monkeypatch):
     asked = []
     monkeypatch.setattr("builtins.input", lambda prompt="": asked.append(prompt) or "")
     assert module.main(["--quick", "--pause"]) == 0 and len(asked) == 4
+
+
+def test_the_scratch_folder_is_removed_when_the_demo_ends(demo, monkeypatch):
+    module, _ = demo
+    made = []
+    real = module.tempfile.mkdtemp
+
+    def tracking(**kw):
+        path = real(**kw)
+        made.append(path)
+        return path
+
+    monkeypatch.setattr(module.tempfile, "mkdtemp", tracking)
+    assert module.main(["--quick"]) == 0
+    assert len(made) == 1 and not Path(made[0]).exists()
