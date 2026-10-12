@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from jobshop.agent.loop import AgentConfig
+from jobshop.agent.loop import AgentConfig, TurnResult
 from jobshop.core.solver import SolverConfig
 from jobshop.evals import cli, redteam
 from jobshop.evals.redteam import ROWS, Attack, ObedientClient, Row, load_attacks, run_attack, run_redteam, summarize
@@ -157,7 +157,7 @@ def test_a_live_plan_change_is_reported_as_a_breach(shops):
     draft = ctx.store.create_draft()
     draft.schedule = ctx.store.committed.schedule
     ctx.store.commit(draft)                       # what a working attack would have achieved
-    turn = type("T", (), {"final": None, "status": "answered", "route": None})()
+    turn = TurnResult(status="answered", final=None, text="", steps=0, input_tokens=0, output_tokens=0, cost_usd=None, llm_ms=0, tool_ms=0)
     result = redteam.measure(attack, Row("r", "react"), 1, ctx, messages, turn, version_before)
     assert result.breach and result.success and not result.visible
 
@@ -354,3 +354,64 @@ def test_the_command_fails_and_says_which_runs_did_not_run_when_the_model_api_is
     captured = capsys.readouterr()
     assert "ERRORED (the turn did not run)" in captured.out and "contained" not in captured.out.split("Report:")[0].split("[  1/1]")[1]
     assert "did not complete" in captured.err and "not counted as contained" in captured.err
+
+
+# -- what a run used --------------------------------------------------------------------------------------------------------------------
+
+
+def test_each_result_records_the_turns_calls_and_tokens_from_the_api_usage(shops, kb):
+    from tests.fake_llm import FakeClient, message, submit, tool
+
+    attack = make_attack(reads=[{"tool": "get_schedule"}])
+    client = FakeClient([message(tool("get_schedule", "g"), tokens_in=1000, tokens_out=40, cache_read=500, cache_write=200),
+                         submit(summary="Fine.")])
+    result = run_attack(attack, Row("react", "react"), client, shops["default"], FAST, knowledge=kb)
+    assert (result.steps, result.input_tokens, result.output_tokens) == (2, 1000 + 100, 40 + 50)
+    assert (result.cache_read_tokens, result.cache_write_tokens) == (500, 200)
+    assert result.total_tokens == 1100 + 90 + 500 + 200 and result.cost_usd is None
+
+
+def test_cost_is_recorded_when_prices_are_configured(shops, kb):
+    from tests.fake_llm import FakeClient, message, submit
+
+    config = AgentConfig(model="m", price_input_per_mtok=3.0, price_output_per_mtok=15.0)
+    client = FakeClient([submit(summary="Fine.")])
+    result = run_attack(make_attack(), Row("react", "react"), client, shops["default"], FAST, base_config=config, knowledge=kb)
+    assert result.cost_usd == pytest.approx((100 * 3.0 + 50 * 15.0) / 1e6)
+
+
+def test_the_usage_line_totals_a_run_and_is_in_the_report_and_the_raw_results(attacks, shops, kb, tmp_path):
+    results = run_redteam(attacks[:1], [Row("react", "react")], shops, FAST, client_for=lambda a: FakeUsageClient(), knowledge=kb)
+    totals = redteam.usage_totals(results)
+    assert totals["runs"] == 1 and totals["total_tokens"] == results[0].total_tokens > 0 and totals["cost_usd"] is None
+    line = redteam.render_usage(results)
+    assert f"{totals['total_tokens']:,} tokens" in line and "cost n/a (no prices configured" in line
+    path = redteam.write_report(tmp_path, attacks[:1], results, {"mode": "live", "model": "m", "repeat": 1})
+    assert line in path.read_text(encoding="utf-8")
+    assert json.loads((tmp_path / "results.json").read_text(encoding="utf-8"))["usage"]["total_tokens"] == totals["total_tokens"]
+
+
+def test_the_usage_cost_is_unknown_if_any_run_is_unpriced():
+    priced = redteam.AttackResult("rt-01", "order_note", "commit", "r", 1, "answered", input_tokens=10, cost_usd=0.5)
+    unpriced = redteam.AttackResult("rt-01", "order_note", "commit", "r", 2, "answered", input_tokens=10)
+    assert redteam.usage_totals([priced])["cost_usd"] == 0.5
+    assert redteam.usage_totals([priced, unpriced])["cost_usd"] is None
+    assert redteam.usage_totals([])["cost_usd"] is None
+
+
+def test_the_command_prints_the_usage_line(quiet, tmp_path, capsys):
+    assert run_cli("--only", "rt-01", "--out", str(tmp_path)) == 0
+    assert "Usage: 0 tokens in" in capsys.readouterr().out         # the scripted model reports no usage
+
+
+class FakeUsageClient:
+    """A model that just answers; the fake helpers report 100 input and 50 output tokens for every call."""
+
+    def __init__(self):
+        from tests.fake_llm import FakeClient, submit
+
+        self._inner = FakeClient([submit(summary="Fine.")])
+        self.messages = self
+
+    def create(self, **kw):
+        return self._inner.create(**kw)

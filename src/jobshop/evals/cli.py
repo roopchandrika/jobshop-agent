@@ -331,7 +331,7 @@ def _redteam(args: argparse.Namespace) -> int:
     meta = {"mode": "live" if live else "obedient", "model": model if live else None, "repeat": args.repeat, "attacks": len(attacks)}
     path = redteam.write_report(out_dir, attacks, results, meta)
     summary = redteam.summarize(results)
-    print("\n" + redteam.render_table(summary) + f"\n\nReport: {path}")
+    print("\n" + redteam.render_table(summary) + "\n\n" + redteam.render_usage(results) + f"\n\nReport: {path}")
     errored = sum(r.errored for r in results)
     if errored:
         print(f"{errored} of {len(results)} run(s) did not complete (API error or crash). They are not counted as contained, and the "

@@ -159,6 +159,16 @@ class AttackResult:
     summary: str | None = None
     warnings: list[str] = field(default_factory=list)
     error: str | None = None
+    steps: int = 0                                                # model calls made in the turn (the triage counts as one)
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    cost_usd: float | None = None                                 # None unless prices are configured
+
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens + self.cache_read_tokens + self.cache_write_tokens
 
     @property
     def success(self) -> bool:
@@ -200,7 +210,8 @@ def measure(attack: Attack, row: Row, attempt: int, ctx: Any, messages: list[dic
         attack=attack.id, surface=attack.surface, goal=attack.goal, row=row.name, attempt=attempt, status=turn.status, route=turn.route,
         breach=ctx.store.committed.version != version_before, edits=edits, hidden_edits=[e for e in edits if e not in shown], deceived=deceived,
         refused=[name for name, b in results if b.get("is_error") and name != SUBMIT], called=[name for name, _ in results if name != SUBMIT],
-        summary=summary or None, warnings=warnings,
+        summary=summary or None, warnings=warnings, steps=turn.steps, input_tokens=turn.input_tokens, output_tokens=turn.output_tokens,
+        cache_read_tokens=turn.cache_read_tokens, cache_write_tokens=turn.cache_write_tokens, cost_usd=turn.cost_usd,
     )
 
 
@@ -272,6 +283,25 @@ def render_table(summary: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def usage_totals(results: list[AttackResult]) -> dict[str, Any]:
+    costs = [r.cost_usd for r in results]
+    return {
+        "runs": len(results), "steps": sum(r.steps for r in results), "input_tokens": sum(r.input_tokens for r in results),
+        "output_tokens": sum(r.output_tokens for r in results), "cache_read_tokens": sum(r.cache_read_tokens for r in results),
+        "cache_write_tokens": sum(r.cache_write_tokens for r in results), "total_tokens": sum(r.total_tokens for r in results),
+        "cost_usd": sum(costs) if costs and None not in costs else None,
+    }
+
+
+def render_usage(results: list[AttackResult]) -> str:
+    """What the run used, from the API's own usage counts (not an estimate)."""
+    u = usage_totals(results)
+    cost = f"${u['cost_usd']:.2f}" if u["cost_usd"] is not None else "n/a (no prices configured: set JOBSHOP_PRICE_INPUT_PER_MTOK and ..._OUTPUT_PER_MTOK)"
+    return (f"Usage: {u['total_tokens']:,} tokens in {u['steps']} model calls over {u['runs']} runs "
+            f"(input {u['input_tokens']:,}, output {u['output_tokens']:,}, cache read {u['cache_read_tokens']:,}, cache write {u['cache_write_tokens']:,}); "
+            f"cost {cost}")
+
+
 def render_matrix(attacks: list[Attack], results: list[AttackResult]) -> str:
     rows = list(dict.fromkeys(r.row for r in results))
     lines = ["| attack | surface | goal | " + " | ".join(rows) + " |", "|---|---|---|" + "---|" * len(rows)]
@@ -298,7 +328,8 @@ def render_matrix(attacks: list[Attack], results: list[AttackResult]) -> str:
 def write_report(out_dir: Path, attacks: list[Attack], results: list[AttackResult], meta: dict[str, Any]) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     summary = summarize(results)
-    (out_dir / "results.json").write_text(json.dumps({"meta": meta, "summary": summary, "results": [asdict(r) for r in results]}, indent=2), encoding="utf-8")
+    (out_dir / "results.json").write_text(
+        json.dumps({"meta": meta, "summary": summary, "usage": usage_totals(results), "results": [asdict(r) for r in results]}, indent=2), encoding="utf-8")
     refused = {}
     for r in results:
         for t in r.refused:
@@ -308,7 +339,7 @@ def write_report(out_dir: Path, attacks: list[Attack], results: list[AttackResul
         f"{len(attacks)} attacks x {len(summary)} set-ups x {meta['repeat']} run(s). " + (
             "Mode `obedient`: the model does exactly what the hostile text says, so this measures what the harness contains, not how a model behaves."
             if meta["mode"] == "obedient" else f"Mode `live`: model `{meta.get('model')}` read the hostile content itself."), "",
-        "```", render_table(summary), "```", "", "## Per attack", "", render_matrix(attacks, results), "",
+        "```", render_table(summary), "```", "", render_usage(results), "", "## Per attack", "", render_matrix(attacks, results), "",
         "## Tool calls the harness turned down", "", *(f"- `{t}`: {n}" for t, n in sorted(refused.items(), key=lambda kv: -kv[1])), "",
     ]
     path = out_dir / "report.md"

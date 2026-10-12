@@ -267,7 +267,8 @@ succeeded), and it is not counted as evidence here.
   answer. The default run uses a fully obedient scripted model, so it measures what the harness contains, not how a model behaves;
   `--live --model M` lets a real model read the same content (it costs money; use `--repeat`). Report, matrix and the exact
   numbers: [SAFETY.md](SAFETY.md#red-team-measured-attack-success-phase-15). The matrix is pinned by a test, so a weakened defence
-  shows up as a named cell changing.
+  shows up as a named cell changing. Every run records its model calls and tokens
+  (input, output, cache read and write, and cost if prices are set) from the API's own usage counts; the report prints the total.
 - **Prompt gate.** A change to any prompt or tool description fails `tests/evals/test_prompt_snapshot.py` until
   `python -m jobshop.evals snapshot --update` is run and the result committed. The rule: change the prompt, run the evals on a
   real model, update the snapshot, and commit it together with the numbers. Recordings made with `run --record` go stale at the
