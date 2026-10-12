@@ -10,7 +10,7 @@ and approves it.
 This is a portfolio project, built to learn AI engineering. The agent's tool-use loop is written by hand
 on the Anthropic SDK (no agent framework), and all data is synthetic.
 
-> **Status.** Built, tested and demo-ready: 1361 automated tests, CI on every push, a container that builds and runs.
+> **Status.** Built, tested and demo-ready: 1396 automated tests, CI on every push, a container that builds and runs.
 > Against a real model (`claude-sonnet-5-5`): **0 of 56 red-team attacks succeeded** and the live plan never changed;
 > **32 of 35** judged scenarios passed every check. Ten-minute demo with no API key: [docs/DEMO.md](docs/DEMO.md)
 > (`uv run python scripts/demo_all.py`). Scope and caveats: [What is and isn't verified](#what-is-and-isnt-verified).
@@ -166,6 +166,8 @@ uv run pytest                    # about five minutes; 5 tests are skipped (opt-
 | Compare agent patterns on one model | `... evals compare --model M --pattern react --pattern verify` (spends API credit) |
 | Route questions to a read-only specialist | `... evals run --pattern route` (or `JOBSHOP_PATTERN=route`); a cheaper triage model: `--triage-model M --triage-price IN,OUT` |
 | Red team: 12 attacks, measured success rate (obedient scripted model, free) | `uv run python -m jobshop.evals redteam`; a real model reads them with `--live --model M` (spends API credit) |
+| Grade a run at about half the judge's price (Message Batches) | `uv run python -m jobshop.evals run --judge-model J --batch-judge` |
+| Turn passing runs into a fine-tuning dataset (JSONL) | `uv run python -m jobshop.evals export-sft --results evals/results/<run> --out sft.jsonl` |
 | Check that no prompt or tool description changed unnoticed | `uv run python -m jobshop.evals snapshot` (`--update` after the evals justify a change) |
 | Use a local open model (**adapter not yet tried on a real Ollama**) | name it `ollama:<model>` in `ANTHROPIC_MODEL`, `--model` or `JOBSHOP_TRIAGE_MODEL`; see [docs/DESIGN.md](docs/DESIGN.md#open-models-phase-13) |
 | Load-test the web app (scripted demo, free) | `uv run python scripts/load_test.py --spawn` |
@@ -204,6 +206,8 @@ it opens instantly. Without an API key it still shows the plan and chat is disab
   It measures what the harness contains, not how a real model behaves. A web rate limit and a test that fails when any
   prompt or tool description changes round it out.
 - **Open models:** a stub-tested adapter lets any model name `ollama:<name>` run the same loop; it has not met a real Ollama.
+- **Cost and data engineering:** judge grading through the Message Batches API (about half price), a fine-tuning dataset export that uses
+  the evals as the quality filter, and the answer streamed to the web page as the model writes it.
 - **Running it:** health check, streamed progress (Server-Sent Events), a Dockerfile (built and run once), a load test, and
   OpenTelemetry trace export.
 - **Evals:** 48 scenarios on two shops; checks read the system's state, not the model's wording; an LLM judge
@@ -219,7 +223,7 @@ Reasons, trade-offs and a glossary: [docs/DESIGN.md](docs/DESIGN.md). Threat mod
 | Verified | Not verified |
 |---|---|
 | The solver against an independent validator and recomputation | The LLM judge on a real model |
-| Tools, loop, approval, store and the MCP server over real stdio, by 1361 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
+| Tools, loop, approval, store and the MCP server over real stdio, by 1396 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
 | The web API (CSRF, Origin, Host, CSP, approval fingerprint) over a real socket | Claude Desktop/Code connecting to the MCP server |
 | The UI in a real browser: chat, proposal, Approve, charts, dark mode, phone width | The Approve flow with a real model; screen readers; browsers other than one |
 | A real model on 29 scenarios, deterministic checks only (above) | The changes since then (goal option, caching, plant documents, new scenarios) over the full suite on a real model; whether a real model searches, cites and stays grounded, including declining to answer from a nearest-but-irrelevant passage |

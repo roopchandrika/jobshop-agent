@@ -102,6 +102,12 @@ async function sendMessage(text) {
   }
 }
 
+function showLiveAnswer(text) {
+  const node = $("live-answer");
+  node.textContent = text;
+  node.hidden = !text;
+}
+
 // Progress arrives as Server-Sent Events. If the stream cannot be used, or breaks, fall back to polling.
 function followTurn(turnId) {
   if (!("EventSource" in window)) return pollTurn(turnId);
@@ -109,8 +115,10 @@ function followTurn(turnId) {
     const seen = [];
     const source = new EventSource(`/api/chat/${turnId}/events`);
     source.addEventListener("progress", (e) => { seen.push(JSON.parse(e.data).tool); setBusy(true, seen); });
-    source.addEventListener("done", () => { source.close(); resolve(refresh()); });
-    source.onerror = () => { source.close(); resolve(pollTurn(turnId)); };
+    // The answer as the model writes it (text only; the final, checked answer replaces it when the turn is done).
+    source.addEventListener("answer", (e) => showLiveAnswer(JSON.parse(e.data).text));
+    source.addEventListener("done", () => { source.close(); showLiveAnswer(""); resolve(refresh()); });
+    source.onerror = () => { source.close(); showLiveAnswer(""); resolve(pollTurn(turnId)); };
   });
 }
 

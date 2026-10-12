@@ -14,12 +14,13 @@ grades that. Three rules keep the grader useful:
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
 import anthropic
 
-from jobshop.agent.providers import create_message
+from jobshop.agent.providers import create_message, forgo_forcing, refuses_forced_tool
 from jobshop.evals.record import Run
 
 CRITERIA: dict[str, str] = {
@@ -205,21 +206,22 @@ def build_prompt(run: Run, criteria: dict[str, str]) -> str:
 JUDGE_MAX_TOKENS = 6000
 
 
-def judge_run(client: Any, model: str, run: Run) -> JudgeResult:
-    criteria = criteria_for(run)
-    try:
-        response = create_message(
-            client,
-            model=model,
-            max_tokens=JUDGE_MAX_TOKENS,
-            system=SYSTEM,
-            tools=[grade_tool(criteria)],
-            tool_choice={"type": "tool", "name": "submit_grade"},
-            messages=[{"role": "user", "content": build_prompt(run, criteria)}],
-        )
-    except anthropic.APIError as e:
-        return JudgeResult(None, error=f"judge API error: {type(e).__name__}: {e}")
+def judge_request(run: Run, model: str, criteria: dict[str, str] | None = None) -> dict[str, Any]:
+    """The messages-API arguments that ask the judge to grade one run. A model known to refuse a forced tool is not forced."""
+    criteria = criteria or criteria_for(run)
+    request: dict[str, Any] = dict(
+        model=model,
+        max_tokens=JUDGE_MAX_TOKENS,
+        system=SYSTEM,
+        tools=[grade_tool(criteria)],
+        tool_choice={"type": "tool", "name": "submit_grade"},
+        messages=[{"role": "user", "content": build_prompt(run, criteria)}],
+    )
+    return forgo_forcing(request) if refuses_forced_tool(model) else request
 
+
+def read_grade(response: Any, criteria: dict[str, str]) -> JudgeResult:
+    """Turn the judge's reply into a verdict. Anything unusable is a judge error, never a pass or a fail."""
     tokens = dict(input_tokens=response.usage.input_tokens, output_tokens=response.usage.output_tokens)
     if response.stop_reason == "max_tokens":
         return JudgeResult(None, error=f"the judge's answer was cut off at {response.usage.output_tokens} tokens", **tokens)
@@ -237,3 +239,48 @@ def judge_run(client: Any, model: str, run: Run) -> JudgeResult:
     if set(scores) != set(criteria) or len(grades) != len(criteria) or not all(1 <= v <= 5 for v in scores.values()):
         return JudgeResult(None, error=f"grade does not cover exactly the criteria {sorted(criteria)}", **tokens)
     return JudgeResult(all(v >= PASS_SCORE for v in scores.values()), scores, reasons, **tokens)
+
+
+def judge_run(client: Any, model: str, run: Run) -> JudgeResult:
+    criteria = criteria_for(run)
+    try:
+        # create_message approximates a forced tool on a model that refuses it, so this takes the unforced request apart again
+        request = judge_request(run, model, criteria)
+        response = create_message(client, **request)
+    except anthropic.APIError as e:
+        return JudgeResult(None, error=f"judge API error: {type(e).__name__}: {e}")
+    return read_grade(response, criteria)
+
+
+def judge_batch(client: Any, model: str, runs: list[Run], *, poll_s: float = 10.0, timeout_s: float = 3600.0,
+                sleep: Any = time.sleep, clock: Any = time.monotonic) -> list[JudgeResult]:
+    """Grade many runs through the Message Batches API: one submission, asynchronous, about half the price of grading one by one.
+
+    A request the batch could not complete (expired, errored, or refused) is graded again on the ordinary API, so a batch problem
+    costs time, never a verdict. If the batch itself does not finish in ``timeout_s`` it is cancelled and everything is graded
+    one by one."""
+    if not runs:
+        return []
+    criteria = [criteria_for(r) for r in runs]
+    requests = [{"custom_id": f"judge-{i}", "params": {k: v for k, v in judge_request(r, model, c).items()}}
+                for i, (r, c) in enumerate(zip(runs, criteria))]
+    results: list[JudgeResult | None] = [None] * len(runs)
+    try:
+        batch = client.messages.batches.create(requests=requests)
+        deadline = clock() + timeout_s
+        while batch.processing_status != "ended":
+            if clock() >= deadline:
+                client.messages.batches.cancel(batch.id)
+                raise TimeoutError(f"the batch did not finish in {timeout_s:.0f} s")
+            sleep(poll_s)
+            batch = client.messages.batches.retrieve(batch.id)
+        for entry in client.messages.batches.results(batch.id):
+            i = int(entry.custom_id.rsplit("-", 1)[1])
+            if entry.result.type == "succeeded":
+                results[i] = read_grade(entry.result.message, criteria[i])
+    except (anthropic.APIError, TimeoutError):
+        pass                       # whatever was not graded is graded one by one below
+    for i, run in enumerate(runs):
+        if results[i] is None:
+            results[i] = judge_run(client, model, run)
+    return [r for r in results if r is not None]

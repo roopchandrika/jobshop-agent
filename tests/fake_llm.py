@@ -61,6 +61,51 @@ class FakeClient:
         return item
 
 
+class StreamingFakeClient(FakeClient):
+    """A FakeClient that can also stream, as ``anthropic.Anthropic().messages.stream`` does.
+
+    ``stream(**kwargs)`` plays the next scripted message as SDK-shaped events: a ``text`` event per text block, and for each tool
+    call a series of ``input_json`` events whose ``snapshot`` is the input so far (the ``summary`` grows a few characters at a time),
+    then ``get_final_message()`` returns the whole message. ``chunk`` is how many characters of ``summary`` arrive per event."""
+
+    def __init__(self, script: list[Any], chunk: int = 7) -> None:
+        super().__init__(script)
+        self.chunk = chunk
+        self.streamed = 0
+
+    def stream(self, **kwargs: Any) -> "_FakeStream":
+        self.streamed += 1
+        return _FakeStream(self.create(**kwargs), self.chunk)
+
+
+class _FakeStream:
+    def __init__(self, message: Message, chunk: int) -> None:
+        self._message, self._chunk = message, chunk
+
+    def __enter__(self) -> "_FakeStream":
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        return None
+
+    def __iter__(self):
+        from types import SimpleNamespace
+
+        for block in self._message.content:
+            if block.type == "text":
+                yield SimpleNamespace(type="text", text=block.text, snapshot=block.text)
+            elif block.type == "tool_use":
+                summary = block.input.get("summary") if isinstance(block.input, dict) else None
+                if isinstance(summary, str):
+                    for end in range(self._chunk, len(summary) + self._chunk, self._chunk):
+                        yield SimpleNamespace(type="input_json", partial_json="", snapshot={"summary": summary[:end]})
+                else:
+                    yield SimpleNamespace(type="input_json", partial_json="", snapshot=dict(block.input))
+
+    def get_final_message(self) -> Message:
+        return self._message
+
+
 def last_text(request: dict[str, Any]) -> str:
     """The text of the last message in a request, whether it was sent as a string or as blocks."""
     content = request["messages"][-1]["content"]

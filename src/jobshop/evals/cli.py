@@ -166,6 +166,7 @@ def _run(args: argparse.Namespace) -> int:
         scenarios, client_for, config,
         shops, SolverConfig(time_limit_s=args.solve_seconds, num_workers=1, seed=0),
         judge=judge, repeat=args.repeat, trace_dir=out_dir / "traces", progress=_progress(len(scenarios) * args.repeat),
+        batch_judge=args.batch_judge,
         knowledge=knowledge,
     )
     meta = {"run_id": run_id, "model": model, "judge_model": judge_model, "scenarios": len(scenarios),
@@ -370,6 +371,21 @@ def _snapshot(args: argparse.Namespace) -> int:
     return 0
 
 
+def _export_sft(args: argparse.Namespace) -> int:
+    from jobshop.evals import export_sft
+
+    try:
+        summary = export_sft.export(args.results, args.evals_dir, args.out, min_judge=args.min_judge, include_failed=args.include_failed,
+                                    knowledge_dir=args.knowledge_dir)
+    except (OSError, ValueError, KeyError) as e:
+        print(f"Configuration error: {e}", file=sys.stderr)
+        return 2
+    print(f"{summary.kept} of {summary.considered} conversations written to {args.out}")
+    for reason, n in summary.skipped.most_common():
+        print(f"  skipped {n}: {reason}")
+    return 0 if summary.kept else 1
+
+
 def _build(args: argparse.Namespace) -> int:
     for name in args.shop or ["default"]:
         path = shop_path(args.evals_dir, name)
@@ -399,6 +415,8 @@ def main(argv: list[str] | None = None) -> int:
     _common(run)
     run.add_argument("--model", help="model under test (default: $ANTHROPIC_MODEL)")
     run.add_argument("--price", help="USD per million tokens as 'input,output', for cost numbers (default: $JOBSHOP_PRICE_*)")
+    run.add_argument("--batch-judge", action="store_true", help="grade all runs afterwards in one Message Batches submission: about half "
+                     "the judge's price, but the grades come back minutes later")
     run.add_argument("--oracle", action="store_true", help="use the scripted reference agent: no API calls, tests the eval itself")
     run.add_argument("--pattern", help="agent pattern: react (default), plan, verify, reflect, or several joined with + (e.g. plan+verify). "
                      "The scripted reference agent can only play react and verify.")
@@ -437,6 +455,14 @@ def main(argv: list[str] | None = None) -> int:
     red.add_argument("--out", type=Path, default=Path("evals/results"))
     red.add_argument("--knowledge-dir", type=Path, help="plant documents (default: <evals-dir>/../knowledge)")
     red.set_defaults(func=_redteam)
+
+    sft = sub.add_parser("export-sft", help="write the conversations of a finished run that passed every check as a fine-tuning dataset (JSONL)")
+    sft.add_argument("--results", type=Path, required=True, help="a results folder made by `run` (contains results.json and traces/)")
+    sft.add_argument("--out", type=Path, required=True, help="the JSONL file to write")
+    sft.add_argument("--min-judge", type=int, metavar="N", help="also require every judge score to be at least N (1 to 5); ungraded runs are skipped")
+    sft.add_argument("--include-failed", action="store_true", help="keep runs that failed a check too (for studying failures, not for training)")
+    sft.add_argument("--knowledge-dir", type=Path, help="plant documents (default: <evals-dir>/../knowledge)")
+    sft.set_defaults(func=_export_sft)
 
     snap = sub.add_parser("snapshot", help="check (or --update) the saved text of every prompt and tool description; fails when the model's instructions changed")
     snap.add_argument("--update", action="store_true", help="rewrite the snapshot from the code (after the evals justify the change)")

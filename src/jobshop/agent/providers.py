@@ -58,6 +58,19 @@ def _without_forcing(kwargs: Mapping[str, Any], forced: str) -> dict[str, Any]:
     return out
 
 
+def refuses_forced_tool(model: str | None) -> bool:
+    """True once a call to this model has been answered with a refusal of ``tool_choice`` (see ``create_message``)."""
+    return model in _NO_FORCED_TOOL
+
+
+def forgo_forcing(kwargs: Mapping[str, Any]) -> dict[str, Any]:
+    """The request without a forced tool (for callers that build requests themselves, such as a batch)."""
+    choice = kwargs.get("tool_choice")
+    if isinstance(choice, dict) and choice.get("type") == "tool":
+        return _without_forcing(kwargs, choice["name"])
+    return dict(kwargs)
+
+
 def create_message(client: Any, **kwargs: Any) -> Any:
     """``client.messages.create``, except that a forced tool call is approximated on a model that refuses ``tool_choice``.
 

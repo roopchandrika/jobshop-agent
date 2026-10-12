@@ -273,6 +273,9 @@ succeeded), and it is not counted as evidence here.
   `python -m jobshop.evals snapshot --update` is run and the result committed. The rule: change the prompt, run the evals on a
   real model, update the snapshot, and commit it together with the numbers. Recordings made with `run --record` go stale at the
   same moment (their request fingerprints cover this text), which `run --replay` reports.
+- **Batch grading and a training set.** `run --batch-judge` sends every grade in one Message Batches submission (about half the
+  price; failures fall back to one-by-one grading). `export-sft` writes the passing conversations of a run as JSONL, the evals
+  acting as the quality filter. See [DESIGN.md](DESIGN.md#batch-grading-a-fine-tuning-export-and-streamed-answers-after-phase-15).
 - **Local models in the evals.** `--model ollama:llama3.1` (and `--judge-model ollama:...`) work; the stub-tested adapter has not
   met a real Ollama.
 

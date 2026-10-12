@@ -20,7 +20,7 @@ from jobshop.agent.trace import Tracer
 from jobshop.core.models import Instance, Schedule
 from jobshop.core.solver import SolverConfig
 from jobshop.evals.checks import evaluate
-from jobshop.evals.judge import JudgeResult, judge_run
+from jobshop.evals.judge import JudgeResult, judge_batch, judge_run
 from jobshop.evals.record import CheckResult, Run
 from jobshop.evals.scenario import Scenario
 from jobshop.evals.shop import fresh_context
@@ -82,9 +82,11 @@ def _checks_to_dict(checks: dict[str, CheckResult]) -> dict[str, dict[str, Any]]
     return {name: {"passed": c.passed, "details": c.details} for name, c in checks.items()}
 
 
-def score(run: Run, judge: tuple[Any, str] | None) -> ScenarioResult:
+def score(run: Run, judge: tuple[Any, str] | None, judged: JudgeResult | None = None) -> ScenarioResult:
+    """Score a finished run. ``judged`` is a grade already obtained (for example from a batch); otherwise ``judge`` is asked now."""
     checks = evaluate(run)
-    judged: JudgeResult | None = judge_run(judge[0], judge[1], run) if judge else None
+    if judged is None and judge:
+        judged = judge_run(judge[0], judge[1], run)
     if judged is not None:
         checks["judge"] = CheckResult("judge", judged.passed, [judged.error] if judged.error else [
             f"{name}: {s} - {judged.reasons[name]}" for name, s in judged.scores.items()
@@ -99,7 +101,7 @@ def score(run: Run, judge: tuple[Any, str] | None) -> ScenarioResult:
         model=run.model, pattern=run.pattern, route=run.turn.route, llm_ms=run.turn.llm_ms, tool_ms=run.turn.tool_ms,
         tools_called=[c.name for c in run.calls], tool_errors=sum(c.is_error for c in run.calls),
         answer=None if final is None else {
-            "summary": final.summary, "clarifying_question": final.clarifying_question,
+            "summary": final.summary, "clarifying_question": final.clarifying_question, "draft_id": final.draft_id,
             "changes_made": final.changes_made, "needs_approval": final.needs_approval, "warnings": final.warnings,
         },
         checks=_checks_to_dict(checks),
@@ -121,8 +123,12 @@ def run_suite(
     trace_dir: Path | None = None,
     progress: Callable[[ScenarioResult], None] = lambda r: None,
     knowledge: Retriever | None = None,
+    batch_judge: bool = False,
 ) -> list[ScenarioResult]:
-    """Run every scenario ``repeat`` times. ``shop`` is one fixture (the "default" shop) or a dict by name."""
+    """Run every scenario ``repeat`` times. ``shop`` is one fixture (the "default" shop) or a dict by name.
+
+    With ``batch_judge`` the agent runs first and the judge grades them all afterwards in one Message Batches submission
+    (about half the price, slower to come back). Results are the same shape and order either way."""
     shops = shop if isinstance(shop, dict) else {"default": shop}
     missing = sorted({s.shop for s in scenarios} - set(shops))
     if missing:  # a setup mistake, found before any (paid) run starts
@@ -132,12 +138,17 @@ def run_suite(
         if needing:
             raise ValueError(f"scenarios need the plant documents but none were loaded: {needing}")
     results: list[ScenarioResult] = []
+    deferred: list[tuple[int, Run]] = []   # (index in results, run) waiting for the batch judge
     for scenario in scenarios:
         for attempt in range(1, repeat + 1):
             trace_path = trace_dir / f"{scenario.id}-{attempt}.jsonl" if trace_dir else None
             try:
                 run = execute(scenario, client_for(scenario), config, shops[scenario.shop], solver_config, attempt, trace_path, knowledge)
-                result = score(run, judge)
+                if judge and batch_judge:
+                    deferred.append((len(results), run))
+                    result = score(run, None)    # provisional: deterministic checks only, graded below
+                else:
+                    result = score(run, judge)
             except Exception as e:  # a bug must cost one scenario, not the whole (paid) run
                 result = ScenarioResult(
                     scenario.id, scenario.category, attempt, "crashed", False,
@@ -145,7 +156,13 @@ def run_suite(
                     trace=str(trace_path) if trace_path else None,
                 )
             results.append(result)
-            progress(result)
+            if not (judge and batch_judge and deferred and deferred[-1][0] == len(results) - 1):
+                progress(result)
+    if deferred and judge:
+        grades = judge_batch(judge[0], judge[1], [run for _, run in deferred])
+        for (index, run), judged in zip(deferred, grades):
+            results[index] = score(run, judge, judged)
+            progress(results[index])
     return results
 
 

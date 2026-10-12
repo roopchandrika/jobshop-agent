@@ -86,12 +86,23 @@ class Turn:
     status: str = "running"  # running | done
     progress: list[str] = field(default_factory=list)  # tool names as they run, for the UI's activity line
     error: str | None = None
+    answer: str = ""          # the answer as written so far, while the model streams it
+    answer_version: int = 0
     # Anyone waiting for news about this turn (the event stream) sleeps on this and is woken by every change.
     changed: threading.Condition = field(default_factory=threading.Condition, repr=False, compare=False)
 
     def add_progress(self, label: str) -> None:
         with self.changed:
             self.progress.append(label)
+            self.changed.notify_all()
+
+    def on_delta(self, kind: str, text: str) -> None:
+        """Receive the model's streamed answer (agent/streaming.py). A reset starts it again, as a bounced answer is rewritten."""
+        if kind not in ("reset", "answer"):
+            return
+        with self.changed:
+            self.answer = "" if kind == "reset" else self.answer + text
+            self.answer_version += 1
             self.changed.notify_all()
 
     def finish(self) -> None:
@@ -253,7 +264,7 @@ def create_app(
 
         def work() -> None:
             try:
-                state.record_answer(state.conversation.say(body.message))  # type: ignore[union-attr]
+                state.record_answer(state.conversation.say(body.message, turn.on_delta))  # type: ignore[union-attr]
             except Exception:  # noqa: BLE001  # a bug must end the turn, not leave the UI waiting forever
                 log.exception("turn failed")
                 turn.error = "Something went wrong running that request. See the server log."
@@ -310,13 +321,20 @@ def create_app(
 
         def stream():
             nonlocal sent
+            answer_seen = 0
             while True:
                 with turn.changed:
-                    idle = turn.changed.wait_for(lambda: len(turn.progress) > sent or turn.status == "done", timeout=HEARTBEAT_SECONDS)
+                    idle = turn.changed.wait_for(
+                        lambda: len(turn.progress) > sent or turn.answer_version != answer_seen or turn.status == "done",
+                        timeout=HEARTBEAT_SECONDS)
                     batch, done, error = turn.progress[sent:], turn.status == "done", turn.error
+                    answer, version = turn.answer, turn.answer_version
                 for label in batch:
                     sent += 1
                     yield f"id: {sent}\nevent: progress\ndata: {json.dumps({'tool': label, 'index': sent})}\n\n"
+                if version != answer_seen:      # the whole answer so far each time, so a reconnect needs no history
+                    answer_seen = version
+                    yield f"event: answer\ndata: {json.dumps({'text': answer})}\n\n"
                 if done:
                     yield f"event: done\ndata: {json.dumps({'status': 'done', 'error': error})}\n\n"
                     return

@@ -37,6 +37,7 @@ from jobshop.agent.patterns import (
 )
 from jobshop.agent.pricing import Prices
 from jobshop.agent.providers import create_message
+from jobshop.agent.streaming import DeltaCallback, can_stream, stream_message
 from jobshop.agent.trace import TRACE_VERSION, Tracer
 from jobshop.tools.errors import ToolError
 from jobshop.tools.functions import DraftId
@@ -180,7 +181,10 @@ def run_turn(
     user_text: str,
     config: AgentConfig,
     tracer: Tracer | None = None,
+    on_delta: DeltaCallback | None = None,
 ) -> TurnResult:
+    """Run one planner request to an answer. ``on_delta(kind, text)``, if given, is called as the answer is written (see
+    agent/streaming.py); it needs a client that can stream and changes nothing about the result."""
     tracer = tracer or Tracer()
     start_len = len(messages)
     messages.append({"role": "user", "content": user_text})
@@ -244,7 +248,10 @@ def run_turn(
         if tool_choice is not None:
             kwargs["tool_choice"] = tool_choice
         try:
-            response = create_message(client, **kwargs)
+            if on_delta is not None and tool_choice is None and can_stream(client):
+                response = stream_message(client, on_delta, **kwargs)
+            else:
+                response = create_message(client, **kwargs)
         except anthropic.APIError as e:
             del messages[start_len:]  # nothing from this turn happened as far as the model knows
             api_error_text = f"The model API failed: {type(e).__name__}: {e}"

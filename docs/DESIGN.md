@@ -343,3 +343,27 @@ the real test, and how well a 7B model drives this loop is unknown: expect it to
   passed. There is no "who" to limit (the app has no login), so the limit protects the budget behind it.
 - **Prompt gate.** `evals/prompts.snapshot.json` holds the full text of everything the model receives. A test fails on any
   difference and prints a diff; `python -m jobshop.evals snapshot --update` accepts a change on purpose.
+
+## Batch grading, a fine-tuning export and streamed answers (after Phase 15)
+
+Three additions that each cover one more concept an AI engineer is expected to know. All three are tested with scripted clients;
+the batch and streaming paths follow the SDK's documented shapes and have not yet been run against the live API (the account's
+usage limit was reached first).
+
+- **Batch grading** (`evals run --batch-judge`). The judge grades one finished run at a time, which is the expensive way. With
+  the flag, the agent runs first and every grade is requested in one Message Batches submission, polled until it ends, at about
+  half the price and a few minutes' delay. A request the batch could not complete is graded again on the ordinary API, and a batch
+  that never ends is cancelled and graded one by one, so a batch problem costs time, never a verdict. The agent loop itself is
+  multi-turn and sequential (each call depends on the last tool result), so only the single-shot judge calls batch cleanly;
+  batching the loop would mean running scenarios in lock-step rounds, a bigger change.
+- **Fine-tuning dataset** (`evals export-sft --results DIR --out FILE`). Rejection sampling: keep only the conversations that
+  passed every deterministic check (and, optionally, scored at least `--min-judge`), and write them as JSONL in the Messages
+  format with the system prompt and tool list. The scenarios' checks read the system's state, so a kept conversation did the right
+  thing, not merely said it. Nothing is trained here; the file is the input to someone else's training run.
+  The system prompt is rebuilt from the code, so check `evals snapshot` if the prompts changed since the run.
+- **Streamed answers.** The planner's answer is the `summary` field of the `submit_response` tool call, which the API streams as
+  partial JSON. `agent/streaming.py` watches the SDK's `input_json` events and passes on each new piece; the web app sends it on
+  the turn's event stream as an `answer` event carrying the whole answer so far (so a reconnect needs no history), and the page shows
+  it in its own element until the checked, final answer replaces it. A bounced answer (a `verify` rewrite) sends a reset so two
+  answers are never joined. Only unforced calls stream; the triage, plan and review calls are internal and never shown. A client
+  that cannot stream (a scripted one, the Ollama adapter) simply does not, with the same final result.

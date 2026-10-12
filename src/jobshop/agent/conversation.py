@@ -54,7 +54,7 @@ class Conversation:
             self.notify(f"The oldest {dropped} turn(s) of this conversation were removed to save space; "
                         "ask the planner if you need something from them.")
 
-    def say(self, text: str) -> TurnResult:
+    def say(self, text: str, on_delta: Any = None) -> TurnResult:
         """Send the planner's words, prefixed by any pending notices, and run one turn."""
         self._tidy_history()
         if self._notices:
@@ -62,4 +62,4 @@ class Conversation:
             text = f"[Notice from the scheduling system, not from the planner: {note}]\n\n{text}"
             self._notices.clear()
         prompt = build_system_prompt(self.ctx, self.preferences.texts())
-        return run_turn(self.client, self.registry, prompt, self.messages, text, self.config, self.tracer)
+        return run_turn(self.client, self.registry, prompt, self.messages, text, self.config, self.tracer, on_delta)

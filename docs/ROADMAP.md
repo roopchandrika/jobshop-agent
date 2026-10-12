@@ -37,6 +37,7 @@ the code on purpose.
 | 13 | Open models: an Ollama adapter behind the same loop, selected by an `ollama:` model name, mixable with Anthropic models | done and tested **against a stub only**; never run against a real Ollama (none installed) | this commit |
 | 14 | Production basics: health check, streamed progress (SSE), Dockerfile, load test, OpenTelemetry trace export | done and tested; the image was built and run once (2026-10-12); a trace backend has not been tried | `f2c7414` |
 | 15 | Safety depth: a 12-attack red team with a measured success rate, answer guards (found by the red team), web rate limit, a prompt-change gate | done and tested; the success rate is for an obedient scripted model, **not yet measured on a real model** | this commit |
+| 16 | Batch grading (Message Batches), a fine-tuning dataset export filtered by the evals, streamed answers in the web UI | done and tested with scripted clients | this commit |
 | next | Judged, repeated two-model comparison (Sonnet vs Opus, judge Fable) | **started, stopped at 46 of 234 runs to save credit; no report** | see [What is next](#what-is-next) |
 
 ## Phase by phase
@@ -130,7 +131,7 @@ the code on purpose.
 | Phase 5 | 527 |
 | Phase 6 | 592 |
 | Phase 7 | 663 |
-| now | **1361** (5 more are opt-in: 2 call the real API, 3 download an embedding model) |
+| now | **1396** (5 more are opt-in: 2 call the real API, 3 download an embedding model) |
 
 About 6,300 lines of source, 5,800 lines of tests.
 
