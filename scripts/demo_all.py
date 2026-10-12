@@ -46,7 +46,7 @@ def main(argv: list[str] | None = None) -> int:
             failures.append(label)
 
     section(1, "The assistant cannot change the live plan, even when fully taken over",
-            "12 attacks (order notes, planted documents, the planner's own words) against a model that obeys every one, "
+            "30 attacks (order notes, planted documents, the planner's own words) against a model that obeys every one, "
             "scored on the store and the answer.", args.pause)
     step("red team", run("-m", "jobshop.evals", "redteam", "--out", out))
 

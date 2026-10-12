@@ -263,7 +263,7 @@ succeeded), and it is not counted as evidence here.
   different route fails the `tools` check, and every result records where the request went. The reference agent answers the
   triage from the scenario's own expectation, so all 48 scenarios pass under `react`, `route` and `route+verify`; that tests the
   plumbing, not a triage model. `run --triage-model SMALL --triage-price IN,OUT` puts a cheaper model on the triage.
-- **Red team** (`python -m jobshop.evals redteam`, free). 12 attacks, each run against four set-ups, scored on the store and the
+- **Red team** (`python -m jobshop.evals redteam`, free). 30 attacks, each run against four set-ups, scored on the store and the
   answer. The default run uses a fully obedient scripted model, so it measures what the harness contains, not how a model behaves;
   `--live --model M` lets a real model read the same content (it costs money; use `--repeat`). Report, matrix and the exact
   numbers: [SAFETY.md](SAFETY.md#red-team-measured-attack-success-phase-15). The matrix is pinned by a test, so a weakened defence

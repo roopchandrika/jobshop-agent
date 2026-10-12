@@ -26,6 +26,29 @@ class DraftOutcome:
     goal: Goal | None = None  # what the draft was solved for, from the draft, not from the model
 
 
+def _listed(changes: list[str], limit: int = 8) -> str:
+    shown = "; ".join(changes[:limit])
+    return shown + (f"; and {len(changes) - limit} more" if len(changes) > limit else "")
+
+
+def snapshot_drafts(ctx: ToolContext) -> dict[str, tuple[str, ...]]:
+    """What every open draft holds right now, to compare with later (see ``unreported_drafts``)."""
+    return {d.id: tuple(d.changes) for d in ctx.store.drafts()}
+
+
+def unreported_drafts(ctx: ToolContext, before: dict[str, tuple[str, ...]], named: str | None) -> list[str]:
+    """Warnings for drafts this turn created or edited, that hold changes, and that the answer does not name.
+
+    The answer names at most one draft. A model that also left edits in another draft (an alternative it tried, or something a
+    hostile note asked for) would otherwise leave them where nothing beside the answer shows them."""
+    found = []
+    for d in ctx.store.drafts():
+        if d.id == named or not d.changes or before.get(d.id) == tuple(d.changes):
+            continue
+        found.append(f"Draft {d.id} was changed in this turn and the answer does not mention it. It holds: {_listed(d.changes)}.")
+    return found
+
+
 def draft_outcome(ctx: ToolContext, draft_id: str | None) -> DraftOutcome:
     if draft_id is None:
         return DraftOutcome()
@@ -39,7 +62,8 @@ def draft_outcome(ctx: ToolContext, draft_id: str | None) -> DraftOutcome:
     if ctx.store.is_stale(draft):
         return DraftOutcome(warnings=[f"Draft {draft_id} is stale (the plan changed since it was made); it cannot be approved."])
     if not draft.solved or draft.schedule is None:
-        return DraftOutcome(warnings=[f"Draft {draft_id} has no solved schedule, so there are no after-KPIs."])
+        held = f" It holds these unsolved edits: {_listed(draft.changes)}." if draft.changes else ""
+        return DraftOutcome(warnings=[f"Draft {draft_id} has no solved schedule, so there are no after-KPIs.{held}"])
 
     return DraftOutcome(
         changes=list(draft.changes),

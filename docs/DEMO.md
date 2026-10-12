@@ -26,8 +26,8 @@ http://127.0.0.1:8765). Type anything.
 
 **3. Safety, measured (2 min).** Section 1 of `demo_all.py`. "I planted hostile instructions in order notes, in a planted plant
 document and in the planner's own message, then scored what the attack actually achieved. This model obeys every instruction, which
-is the worst case. With no defences 92% of attacks get something. With answer guards 42%. With routing a question to a reader with
-no edit tools, 8%. The live plan never changes in any of them." Point at the matrix.
+is the worst case. With no defences 87% of 30 attacks get something. With answer guards 43%. With routing a question to a reader with
+no edit tools, 3%. The live plan never changes in any of them." Point at the matrix.
 
 **4. How it is measured (2 min).** Section 2. "48 scenarios; the checks read the store and the tool log, not what the model says.
 The scripted reference agent passes all 48, which tests the harness. I also broke the code on purpose, mutation testing, and found
@@ -77,8 +77,8 @@ Measured offline:
 
 | What | Result |
 |---|---|
-| Attack success against a fully obedient scripted model | 92% (no guards) to 42% (answer guards) to 8% (routing) |
+| Attack success against a fully obedient scripted model | 30 attacks: 87% (no guards) to 43% (answer guards) to 3% (routing) |
 | Retrieval of hard paraphrases | embeddings 6 of 6, keywords 3 of 6 |
-| Tests | 1413 pass; CI on every push |
+| Tests | 1424 pass; CI on every push |
 | Scenarios | 48; the reference agent passes 48/48 under `react`, `route` and `route+verify` |
 | Container | built and run: non-root, healthy, page and plan served, foreign Host header refused |

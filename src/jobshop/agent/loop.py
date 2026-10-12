@@ -41,7 +41,7 @@ from jobshop.agent.streaming import DeltaCallback, can_stream, stream_message
 from jobshop.agent.trace import TRACE_VERSION, Tracer
 from jobshop.tools.errors import ToolError
 from jobshop.tools.functions import DraftId
-from jobshop.tools.outcome import DraftOutcome, draft_outcome
+from jobshop.tools.outcome import DraftOutcome, draft_outcome, snapshot_drafts, unreported_drafts
 from jobshop.tools.registry import ToolRegistry
 from jobshop.tools.views import Goal, KPIView, fmt
 
@@ -188,6 +188,7 @@ def run_turn(
     tracer = tracer or Tracer()
     start_len = len(messages)
     messages.append({"role": "user", "content": user_text})
+    drafts_before = snapshot_drafts(registry.ctx)    # to tell, at the end, which drafts this turn touched
     tracer.event("turn_start", trace_version=TRACE_VERSION, model=config.model, user_text=user_text, pattern=config.pattern)
 
     patterns = config.patterns
@@ -412,7 +413,8 @@ def run_turn(
                 kpi_before=outcome.kpi_before,
                 kpi_after=outcome.kpi_after,
                 needs_approval=outcome.needs_approval,
-                warnings=[*outcome.warnings, *extra_warnings, *(guard_warnings(payload.summary, outcome) if config.answer_guards else [])],
+                warnings=[*outcome.warnings, *extra_warnings, *(guard_warnings(payload.summary, outcome) if config.answer_guards else []),
+                          *(unreported_drafts(registry.ctx, drafts_before, payload.draft_id) if config.answer_guards else [])],
                 goal=outcome.goal,
             )
             recap = final.clarifying_question or final.summary
