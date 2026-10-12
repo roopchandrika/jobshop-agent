@@ -10,7 +10,7 @@ and approves it.
 This is a portfolio project, built to learn AI engineering. The agent's tool-use loop is written by hand
 on the Anthropic SDK (no agent framework), and all data is synthetic.
 
-> **Status.** Built, tested and demo-ready: 1396 automated tests, CI on every push, a container that builds and runs.
+> **Status.** Built, tested and demo-ready: 1404 automated tests, CI on every push, a container that builds and runs.
 > Against a real model (`claude-sonnet-5-5`): **0 of 56 red-team attacks succeeded** and the live plan never changed;
 > **32 of 35** judged scenarios passed every check. Ten-minute demo with no API key: [docs/DEMO.md](docs/DEMO.md)
 > (`uv run python scripts/demo_all.py`). Scope and caveats: [What is and isn't verified](#what-is-and-isnt-verified).
@@ -169,7 +169,7 @@ uv run pytest                    # about five minutes; 5 tests are skipped (opt-
 | Grade a run at about half the judge's price (Message Batches) | `uv run python -m jobshop.evals run --judge-model J --batch-judge` |
 | Turn passing runs into a fine-tuning dataset (JSONL) | `uv run python -m jobshop.evals export-sft --results evals/results/<run> --out sft.jsonl` |
 | Check that no prompt or tool description changed unnoticed | `uv run python -m jobshop.evals snapshot` (`--update` after the evals justify a change) |
-| Use a local open model (**adapter not yet tried on a real Ollama**) | name it `ollama:<model>` in `ANTHROPIC_MODEL`, `--model` or `JOBSHOP_TRIAGE_MODEL`; see [docs/DESIGN.md](docs/DESIGN.md#open-models-phase-13) |
+| Use a local open model (adapter run against a real Ollama; a 3B model could not finish the loop) | name it `ollama:<model>` in `ANTHROPIC_MODEL`, `--model` or `JOBSHOP_TRIAGE_MODEL`; see [docs/DESIGN.md](docs/DESIGN.md#open-models-phase-13) |
 | Load-test the web app (scripted demo, free) | `uv run python scripts/load_test.py --spawn` |
 | Container (built and run once, 2026-10-12; no model configured inside) | `docker build -t jobshop-agent .` then `docker run --rm -p 127.0.0.1:8000:8000 jobshop-agent` |
 
@@ -205,7 +205,10 @@ it opens instantly. Without an API key it still shows the plan and chat is disab
   to 42% with the answer guards and 8% with routing, and the live plan never changes ([docs/SAFETY.md](docs/SAFETY.md#red-team-measured-attack-success-phase-15)).
   It measures what the harness contains, not how a real model behaves. A web rate limit and a test that fails when any
   prompt or tool description changes round it out.
-- **Open models:** a stub-tested adapter lets any model name `ollama:<name>` run the same loop; it has not met a real Ollama.
+- **Open models:** an adapter lets any model name `ollama:<name>` run the same loop. Run against a real Ollama with `llama3.2:3b` on a
+  CPU: the adapter works, the 3B model does not (it writes the final tool call as text, and misroutes as a triage model).
+- **A framework comparison:** the plain loop also exists as a LangGraph graph (optional extra, never used by the product); it passes
+  the same 48 scenarios with identical answers, and [docs/DESIGN.md](docs/DESIGN.md#the-loop-on-a-framework-a-side-by-side-comparison-only) compares them.
 - **Cost and data engineering:** judge grading through the Message Batches API (about half price), a fine-tuning dataset export that uses
   the evals as the quality filter, and the answer streamed to the web page as the model writes it.
 - **Running it:** health check, streamed progress (Server-Sent Events), a Dockerfile (built and run once), a load test, and
@@ -223,14 +226,14 @@ Reasons, trade-offs and a glossary: [docs/DESIGN.md](docs/DESIGN.md). Threat mod
 | Verified | Not verified |
 |---|---|
 | The solver against an independent validator and recomputation | The LLM judge on a real model |
-| Tools, loop, approval, store and the MCP server over real stdio, by 1396 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
+| Tools, loop, approval, store and the MCP server over real stdio, by 1404 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
 | The web API (CSRF, Origin, Host, CSP, approval fingerprint) over a real socket | Claude Desktop/Code connecting to the MCP server |
 | The UI in a real browser: chat, proposal, Approve, charts, dark mode, phone width | The Approve flow with a real model; screen readers; browsers other than one |
 | A real model on 29 scenarios, deterministic checks only (above) | The changes since then (goal option, caching, plant documents, new scenarios) over the full suite on a real model; whether a real model searches, cites and stays grounded, including declining to answer from a nearest-but-irrelevant passage |
 | Safety, eval and API code by mutation testing: guards broken on purpose, a test failed for each | A security audit: this is a local single-user app, not hardened for a network |
 | Memory, patterns and extraction logic with scripted models; the web layer under concurrent load (20 users: one chat accepted, 19 told to wait, no errors); the event stream live on a real socket | Any of those on a real model: whether stored preferences are followed, whether `verify`/`reflect`/`plan` help, how a model does on the emails |
 | Trace export against the OTLP JSON structure; the container image built and run once (non-root user, healthy, page and plan served, foreign Host refused) | Chat inside the container with a real model; trace export into a real tracing backend |
-| Routing, the answer guards, the rate limit, the prompt snapshot and the red-team scoring with scripted models; the red team's 12 attacks against a fully obedient scripted model (live plan never changed) | Whether routing saves money or improves answers; the judge, patterns, preferences and extractor on a real model. The Ollama adapter against a real Ollama (none installed here) |
+| Routing, the answer guards, the rate limit, the prompt snapshot and the red-team scoring with scripted models; the red team's 12 attacks against a fully obedient scripted model (live plan never changed) | Whether routing saves money or improves answers; the judge, patterns, preferences and extractor on a real model. A local model strong enough to drive the loop (7B and up) |
 | All 12 red-team attacks read by `claude-sonnet-5-5`, `react` and `route`, 2 runs each: 0 succeeded, live plan never changed. One real scenario passes | Run-to-run variation beyond 2 runs, and models other than this one; the judge and the `plan`/`reflect` patterns on a real model |
 
 **Limits:** one planner and one shop; state is in memory (web) or a JSON file (MCP), with no accounts or

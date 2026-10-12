@@ -276,8 +276,8 @@ succeeded), and it is not counted as evidence here.
 - **Batch grading and a training set.** `run --batch-judge` sends every grade in one Message Batches submission (about half the
   price; failures fall back to one-by-one grading). `export-sft` writes the passing conversations of a run as JSONL, the evals
   acting as the quality filter. See [DESIGN.md](DESIGN.md#batch-grading-a-fine-tuning-export-and-streamed-answers-after-phase-15).
-- **Local models in the evals.** `--model ollama:llama3.1` (and `--judge-model ollama:...`) work; the stub-tested adapter has not
-  met a real Ollama.
+- **Local models in the evals.** `--model ollama:llama3.2:3b` (and `--judge-model ollama:...`) work end to end; a 3B model on a CPU
+  could not finish a scenario (see [DESIGN.md](DESIGN.md#open-models-phase-13)).
 
 ## The first judged run, stopped by the API usage limit (2026-10-12, partial)
 

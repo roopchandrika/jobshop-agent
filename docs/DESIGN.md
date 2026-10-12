@@ -324,10 +324,14 @@ What the adapter does not hide:
 - Tool-call arguments that arrive as a JSON string are parsed; ones that are not JSON are passed on as an argument the tool rejects
   by name, so the model is told what went wrong.
 
-**Not verified against a real Ollama.** None is installed on the machine this was written on. The adapter is tested against a stub
-server that behaves as Ollama's documentation says (request translation, tool calls and results, usage, every failure turned into
-an API error the loop already handles, dispatch by name, whole turns through the real loop). The first run against a real server is
-the real test, and how well a 7B model drives this loop is unknown: expect it to need the `route` pattern and clearer prompts.
+**Run against a real Ollama (0.40.3, `llama3.2:3b`, CPU only, 2026-10-12).** The adapter works end to end: the request is
+translated, the model's tool calls are parsed and its results fed back. The model does not: asked "how many orders are on time?"
+it called `list_orders` correctly, then wrote `submit_response("...")` as plain text instead of calling the tool, three times,
+and the loop ended the turn with no answer (`no_final_response`), as designed. Each call took about 65 s on this CPU for a 3k-token
+prompt. As the *triage* model under `route` it was fast (17 s for the whole turn) but misrouted the plain question to `clarify`
+and echoed it back as a question. So a 3B model is not a usable agent or triage model for this loop; a stronger local model
+(7B and up, ideally on a GPU) is the next thing to try. The adapter is also tested against a stub server (request translation,
+tool calls and results, usage, every failure turned into an API error the loop already handles, dispatch by name).
 
 ## Answer guards, a rate limit and a prompt gate (Phase 15)
 
@@ -367,3 +371,35 @@ usage limit was reached first).
   it in its own element until the checked, final answer replaces it. A bounced answer (a `verify` rewrite) sends a reset so two
   answers are never joined. Only unforced calls stream; the triage, plan and review calls are internal and never shown. A client
   that cannot stream (a scripted one, the Ollama adapter) simply does not, with the same final result.
+
+## The loop on a framework: a side-by-side (comparison only)
+
+`src/jobshop/comparison/langgraph_loop.py` re-expresses the plain ReAct loop as a LangGraph state graph. It is not the product:
+nothing imports it, the dependency is the optional `frameworks` extra, and `PROJECT_RULES.md` records the exception. It runs the
+same tools, prompt, answer construction and scoring (`python -m jobshop.evals run --oracle --loop langgraph`), so the comparison
+is of the loop and nothing else.
+
+```mermaid
+flowchart LR
+  S((start)) --> M[model node<br/>one API call]
+  M -- "tool calls" --> T[tools node<br/>run tools, build answer]
+  M -- "prose: nudge" --> M
+  T -- "no answer yet" --> M
+  M -- "limit or error" --> E((end))
+  T -- "answer submitted" --> E
+```
+
+| | Hand-written loop | LangGraph port |
+|---|---|---|
+| Result on the 48 scenarios (reference agent, same checks) | 48/48 | **48/48**, identical answers, steps and tools |
+| Code | `agent/loop.py`, 514 lines, with all the patterns, caching, compaction, streaming and per-call pricing | 164 lines for the plain loop only |
+| Control flow | one `while` loop; every branch visible in order | nodes and conditional edges; the order is in the wiring |
+| State | one history list and a few counters | a state dict plus a closure for the accumulators (the graph state is awkward for a mutated list) |
+| What it gives you for free | nothing | checkpointing, interrupts for human-in-the-loop, graph visualisation, per-node event streaming |
+| What it costs | none | 18 more packages in the lock file; a framework's version churn; a recursion limit that must be set above `max_steps` |
+| Hardest parts, where the code actually is | forced tool calls, history validity, budgets, patterns: same either way, because they are logic around the model call, not control flow | the same: the framework does not remove them |
+
+The honest reading: for this loop the framework replaces roughly a dozen lines of `while`/`if` with graph wiring and adds
+capabilities (persistence, interrupts) this project does not need, because approval is already a separate, human-only step. The
+code that carries the weight, the validation, budgets, patterns, the system-computed answer, is identical in both.
+

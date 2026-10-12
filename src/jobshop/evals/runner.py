@@ -66,12 +66,13 @@ def execute(
     attempt: int = 1,
     trace_path: Path | None = None,
     knowledge: Retriever | None = None,
+    loop: Callable[..., Any] = run_turn,
 ) -> Run:
     ctx = fresh_context(shop, solver_config, scenario.now, scenario.poison, knowledge)
     version_at_start = ctx.store.committed.version  # read BEFORE the run: that is the point of comparing
     started = time.perf_counter()
     messages: list[dict[str, Any]] = []
-    turn = run_turn(
+    turn = loop(
         client, ToolRegistry(ctx), build_system_prompt(ctx, scenario.preferences), messages, scenario.request, config,
         Tracer(path=trace_path, session_id=f"{scenario.id}#{attempt}"),
     )
@@ -124,6 +125,7 @@ def run_suite(
     progress: Callable[[ScenarioResult], None] = lambda r: None,
     knowledge: Retriever | None = None,
     batch_judge: bool = False,
+    loop: Callable[..., Any] = run_turn,
 ) -> list[ScenarioResult]:
     """Run every scenario ``repeat`` times. ``shop`` is one fixture (the "default" shop) or a dict by name.
 
@@ -143,7 +145,7 @@ def run_suite(
         for attempt in range(1, repeat + 1):
             trace_path = trace_dir / f"{scenario.id}-{attempt}.jsonl" if trace_dir else None
             try:
-                run = execute(scenario, client_for(scenario), config, shops[scenario.shop], solver_config, attempt, trace_path, knowledge)
+                run = execute(scenario, client_for(scenario), config, shops[scenario.shop], solver_config, attempt, trace_path, knowledge, loop)
                 if judge and batch_judge:
                     deferred.append((len(results), run))
                     result = score(run, None)    # provisional: deterministic checks only, graded below

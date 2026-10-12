@@ -12,6 +12,9 @@ the Phase 0 review and take precedence over the spec where they differ.
 - **Synthetic data only.** Never model data on any real company's system.
 - **No agent frameworks** (no LangChain, CrewAI, LangGraph, etc.). The tool-use
   loop is hand-written on the Anthropic Python SDK.
+  *Exception, approved by the owner on 2026-10-12:* one optional comparison port of
+  the loop to LangGraph lives in `src/jobshop/comparison/`, behind the `frameworks`
+  extra. The product never imports it; it exists only to compare the two loops.
 - **Model name and API key come from environment variables** (loaded with
   python-dotenv). Never hardcode either. Never commit `.env`.
 - **The scheduling core never depends on the LLM.** `core/` and `tools/` must

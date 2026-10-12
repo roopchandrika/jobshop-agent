@@ -24,7 +24,7 @@ jobs:
           enable-cache: true
 
       - name: Install the locked dependencies
-        run: uv sync --locked
+        run: uv sync --locked --extra frameworks    # the comparison port's tests need LangGraph; the embeddings extra stays out
 
       - name: Tests
         run: uv run pytest -q

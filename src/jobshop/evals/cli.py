@@ -106,6 +106,17 @@ def _with_prices(config: AgentConfig, prices: Prices | None) -> AgentConfig:
 # -- run ---------------------------------------------------------------------------------------------
 
 
+def _loop_named(name: str):
+    """The agent loop to score: the hand-written one, or the LangGraph port (needs: uv sync --extra frameworks)."""
+    if name == "langgraph":
+        from jobshop.comparison.langgraph_loop import run_turn_langgraph
+
+        return run_turn_langgraph
+    from jobshop.agent.loop import run_turn
+
+    return run_turn
+
+
 def _run(args: argparse.Namespace) -> int:
     load_dotenv()
     try:
@@ -148,6 +159,7 @@ def _run(args: argparse.Namespace) -> int:
         return 2
 
     client = None if offline else build_client(os.environ, model, judge_model, config.triage_model)
+    loop = _loop_named(args.loop)
     judge = (client, judge_model) if judge_model else None
     if args.oracle:
         client_for = OracleClient
@@ -166,7 +178,7 @@ def _run(args: argparse.Namespace) -> int:
         scenarios, client_for, config,
         shops, SolverConfig(time_limit_s=args.solve_seconds, num_workers=1, seed=0),
         judge=judge, repeat=args.repeat, trace_dir=out_dir / "traces", progress=_progress(len(scenarios) * args.repeat),
-        batch_judge=args.batch_judge,
+        batch_judge=args.batch_judge, loop=loop,
         knowledge=knowledge,
     )
     meta = {"run_id": run_id, "model": model, "judge_model": judge_model, "scenarios": len(scenarios),
@@ -415,6 +427,8 @@ def main(argv: list[str] | None = None) -> int:
     _common(run)
     run.add_argument("--model", help="model under test (default: $ANTHROPIC_MODEL)")
     run.add_argument("--price", help="USD per million tokens as 'input,output', for cost numbers (default: $JOBSHOP_PRICE_*)")
+    run.add_argument("--loop", choices=["handwritten", "langgraph"], default="handwritten",
+                     help="which agent loop to score; langgraph is the framework port used for the comparison (uv sync --extra frameworks)")
     run.add_argument("--batch-judge", action="store_true", help="grade all runs afterwards in one Message Batches submission: about half "
                      "the judge's price, but the grades come back minutes later")
     run.add_argument("--oracle", action="store_true", help="use the scripted reference agent: no API calls, tests the eval itself")

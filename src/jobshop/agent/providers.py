@@ -15,8 +15,8 @@ What the adapter cannot do, and says so rather than pretending:
   system prompt, the part with the safety rules. The adapter sets a large ``num_ctx`` and refuses a reply whose prompt
   filled the window instead of letting the model answer from a truncated prompt.
 
-This adapter is tested against a stub server that behaves as Ollama's documentation says. It has not been run against a
-real Ollama (none is installed on the machine it was written on), so the first real run is the real test.
+This adapter is tested against a stub server that behaves as Ollama's documentation says, and was run once against a real
+Ollama 0.40.3 with llama3.2:3b: the adapter worked, the 3B model could not finish the loop (see docs/DESIGN.md).
 """
 
 from __future__ import annotations
