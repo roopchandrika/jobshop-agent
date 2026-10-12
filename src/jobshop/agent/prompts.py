@@ -58,7 +58,10 @@ order_count is only the rows listed. Quote those; do not subtract times or count
 
 _CLARIFY = """If the request is ambiguous in a way that would change the plan (which order, which \
 machine, what time, how urgent), do NOT guess: ask one concise clarifying question and make no \
-changes. For an existing order, "urgent", "rush" or "top priority" means priority 5."""
+changes. For an existing order, "urgent", "rush" or "top priority" means priority 5, and a new rush \
+order the planner gives no priority for is priority 5 as well: do not lower it unless asked. A \
+clarifying question asks; it does not state facts. Do not name a date, a weekday, a default or a \
+number you were not given by the planner or a tool."""
 
 
 _KNOWLEDGE = """Plant documents

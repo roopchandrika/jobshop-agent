@@ -275,3 +275,30 @@ succeeded), and it is not counted as evidence here.
   same moment (their request fingerprints cover this text), which `run --replay` reports.
 - **Local models in the evals.** `--model ollama:llama3.1` (and `--judge-model ollama:...`) work; the stub-tested adapter has not
   met a real Ollama.
+
+## The first judged run, stopped by the API usage limit (2026-10-12, partial)
+
+`claude-sonnet-5-5`, pattern `react`, judge `claude-fable-5-1`, all 48 scenarios, one run each. **35 of the 48 turns completed;
+the other 13 (`ts-03` to `ts-06`, `kn-01` to `kn-05`, `mem-01` to `mem-04`) ended in an API error because the account hit its
+usage limit ("You will regain access on 2026-11-01").** Those 13 say nothing about the model and are not counted below. A `route`
+pass was started straight after and failed the same way; its report is invalid.
+
+Of the 35 turns that ran: **32 passed every check, 3 failed.**
+
+| Scenario | What failed | What it really is |
+|---|---|---|
+| `ro-03` ("squeeze in a rush housing order due 17:30") | the draft had priority 4 where the scenario expects 5 | The request does not state a priority. The model chose 4 and said so; another run chose 5. An unstated parameter, not a wrong answer. Either the scenario should accept any rush priority or the prompt should give a default |
+| `im-05` (a rush order that cannot fit) | the "changes" check: "the answer names no existing draft" | The model correctly reported INFEASIBLE and discarded the draft. The check is too strict for an infeasible case: discarding a useless draft is good behaviour |
+| `am-04` ("can you fit in a rush order for tomorrow?") | the judge scored accuracy 2 | The clarifying question stated facts no tool had given (the date of tomorrow, a default rush priority). A genuine, known weakness: invented specifics in a clarifying question |
+
+Two harness problems this run exposed and fixed:
+
+- **The judge's answer was cut off.** At 1500 output tokens the judge model's tool call arrived empty and the error said only
+  "malformed". The ceiling is now 6000 tokens and a cut-off answer is a named error.
+- **The judge called true details "invented".** It saw a summary of the system's facts, not what the assistant had read, so a
+  correct "12 orders" or "O-109 finishes last" scored accuracy 2. It is now shown the tool results the assistant was shown
+  (capped, with truncation flagged). On the same two scenarios accuracy went from 2 to 4 and from 4 to 5.
+
+The deterministic `numbers` check also failed on `sd-01` in one of three repeats of the same scenario, a reminder that one run per
+scenario cannot show the spread. The judged `react` vs `route` comparison and the repeats are still to do, and cannot be until the
+limit is raised.

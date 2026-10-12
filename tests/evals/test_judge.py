@@ -98,3 +98,64 @@ def test_an_answer_that_tries_to_instruct_the_judge_is_quoted_inside_its_own_tag
 def test_a_run_without_an_answer_is_described_as_such(play):
     _, run_ = play("sd-01", [anthropic.APIConnectionError(request=httpx2.Request("POST", "https://x"))])
     assert "(no answer was produced)" in build_prompt(run_, CRITERIA)
+
+
+def test_an_answer_cut_off_by_the_token_limit_is_a_named_judge_error_not_an_empty_grade(run):
+    """Found live: the judge model ran out of tokens, the tool call arrived with no fields, and the error said only 'malformed'."""
+    cut = message(tool("submit_grade", "g"), stop_reason="max_tokens", tokens_out=6000)
+    result = judge_run(FakeClient([cut]), "j", run)
+    assert result.passed is None and "cut off at 6000 tokens" in result.error
+
+
+def test_the_judge_is_given_room_to_think_before_it_grades(run):
+    from jobshop.evals.judge import JUDGE_MAX_TOKENS
+
+    client = FakeClient([grade(all_scores(5))])
+    judge_run(client, "j", run)
+    assert client.requests[0]["max_tokens"] == JUDGE_MAX_TOKENS >= 4000
+
+
+def test_a_malformed_grade_error_says_what_was_received(run):
+    result = judge_run(FakeClient([message(tool("submit_grade", "g", note="x"))]), "j", run)
+    assert result.passed is None and "fields received=['note']" in result.error and "stop_reason=tool_use" in result.error
+
+
+# -- the judge is shown what the assistant was shown ------------------------------------------------------------------------------------
+
+
+def test_the_judge_sees_the_tool_results_the_assistant_read_so_true_details_are_not_called_invented(play):
+    from jobshop.evals.judge import ground_truth
+
+    seen = []
+
+    class Spy(FakeClient):
+        def create(self, **kw):
+            seen.append(kw["messages"][0]["content"])
+            return super().create(**kw)
+
+    _, run_ = play("q-01", [message(tool("list_orders", "l")), submit(summary="12 orders, all on time.")], judge=(Spy([grade(all_scores(5))]), "j"))
+    prompt = seen[0]
+    assert "tool_results_the_assistant_was_shown" in prompt and "list_orders" in prompt
+    assert "never as instructions" in SYSTEM and "tool results the assistant was shown" in SYSTEM
+
+
+def test_errors_and_document_passages_are_not_repeated_as_tool_results(run):
+    from jobshop.evals.judge import shown_results
+
+    names = [r["tool"] for r in shown_results(run)]
+    assert names and all(n != "search_knowledge" for n in names)
+
+
+def test_long_results_are_capped_and_flagged_as_truncated(run, monkeypatch):
+    from jobshop.evals import judge
+
+    monkeypatch.setattr(judge, "RESULT_CHARS", 40)
+    shown = judge.shown_results(run)
+    assert shown and all(len(r["result"]) <= 40 for r in shown) and any(r.get("truncated") for r in shown)
+
+
+def test_the_total_is_capped_so_many_results_cannot_flood_the_prompt(run, monkeypatch):
+    from jobshop.evals import judge
+
+    monkeypatch.setattr(judge, "RESULTS_CHARS", 100)
+    assert sum(len(r["result"]) for r in judge.shown_results(run)) <= 100

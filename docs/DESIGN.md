@@ -258,8 +258,10 @@ check has no false alarms on correct answers) but not `plan` or `reflect`, which
 - **Container:** a `Dockerfile` (non-root user, locked dependencies without dev tools, a health check) and a
   `.dockerignore` that keeps `.env`, history and local state out. The app deliberately refuses to listen on anything but
   loopback because it has no login; inside a container it must listen on `0.0.0.0`, so `--container` allows exactly that and
-  nothing else, and the documented run command publishes the port to `127.0.0.1` only. **The image has not been built or run
-  here** (Docker Desktop was not running); the tests check its properties as text. Build it before trusting it.
+  nothing else, and the documented run command publishes the port to `127.0.0.1` only. **Built and run once (2026-10-12):** the
+  image builds, runs as the non-root `app` user, reports `healthy`, serves the page and the plan on `127.0.0.1:8000`, and
+  answers 400 to a foreign `Host` header. Not checked: chat inside the container with a real model (no key was passed), and
+  anything beyond that single run.
 - **Trace export:** `python -m jobshop.agent.trace_export FILE` writes OpenTelemetry spans (OTLP/JSON, no new dependency): one
   trace per turn, a span for each model call and tool call with real start times, tokens, model and cost. It exports
   metadata only, never the planner's words, answers, tool arguments or results. It has been checked against the OTLP JSON

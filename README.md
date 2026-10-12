@@ -10,10 +10,10 @@ and approves it.
 This is a portfolio project, built to learn AI engineering. The agent's tool-use loop is written by hand
 on the Anthropic SDK (no agent framework), and all data is synthetic.
 
-> **Status.** Built and tested: 1341 automated tests, CI on every push. One real-model evaluation exists
-> (29 scenarios, no judge: 22/29, every miss in one check that has since been narrowed). A judged, repeated
-> two-model comparison was started and stopped early to save API credit, so **no comparison has been
-> completed**. See [What is and isn't verified](#what-is-and-isnt-verified).
+> **Status.** Built, tested and demo-ready: 1361 automated tests, CI on every push, a container that builds and runs.
+> Against a real model (`claude-sonnet-5-5`): **0 of 56 red-team attacks succeeded** and the live plan never changed;
+> **32 of 35** judged scenarios passed every check. Ten-minute demo with no API key: [docs/DEMO.md](docs/DEMO.md)
+> (`uv run python scripts/demo_all.py`). Scope and caveats: [What is and isn't verified](#what-is-and-isnt-verified).
 
 ![The web UI after an outage on M1: KPI tiles with deltas, a proposal with Approve and Reject, and the live and proposed Gantt charts](docs/images/web-ui.png)
 
@@ -58,7 +58,18 @@ of 185) and moves 6 more operations. Nothing is live until the planner approves.
 
 ## What a real model scored
 
-`claude-sonnet-5-5`, 29 scenarios, one run each, LLM judge off (2026-10-08):
+**Latest (2026-10-12), `claude-sonnet-5-5` with judge `claude-fable-5-1`:**
+
+| What | Result |
+|---|---|
+| 12 red-team attacks (order notes, planted documents, the planner's own words) | **0 of 56 runs succeeded**; the live plan never changed |
+| 48 scenarios, one run each, judged | **32 of 35** completed scenarios passed every check (91%); 13 could not run because the account hit its usage limit |
+| One turn | about 10 s and about 40k tokens, three quarters of them cache reads |
+
+The judged run exposed two judge bugs, both fixed: its answer was cut off at 1500 tokens, and it called true details "invented"
+because it was not shown the tool results. Details and the three genuine failures: [docs/EVALS.md](docs/EVALS.md).
+
+**First run (2026-10-08), 29 scenarios, one run each, LLM judge off:**
 
 - Right kind of answer 29/29, right tools 29/29, exact requested edits 17/17, independent validator 15/15.
 - Numbers traceable to what the model was shown: **22/29**. I read all 7 misses; **none was a wrong number**.
@@ -138,6 +149,7 @@ uv run pytest                    # about five minutes; 5 tests are skipped (opt-
 
 | What | Command |
 |---|---|
+| **The whole project in one command, no API key** ([demo script](docs/DEMO.md)) | `uv run python scripts/demo_all.py` (`--quick` for 20 s, `--pause` to talk over each section) |
 | **Web UI** | `uv run python -m jobshop.api`, then open http://127.0.0.1:8000 |
 | **Web UI demo, no API key** (scripted model, real solver) | `uv run python scripts/demo_server.py`, then open http://127.0.0.1:8765 |
 | Chat in a terminal | `uv run python -m jobshop.agent.cli --now "2026-01-05 12:00"` |
@@ -157,7 +169,7 @@ uv run pytest                    # about five minutes; 5 tests are skipped (opt-
 | Check that no prompt or tool description changed unnoticed | `uv run python -m jobshop.evals snapshot` (`--update` after the evals justify a change) |
 | Use a local open model (**adapter not yet tried on a real Ollama**) | name it `ollama:<model>` in `ANTHROPIC_MODEL`, `--model` or `JOBSHOP_TRIAGE_MODEL`; see [docs/DESIGN.md](docs/DESIGN.md#open-models-phase-13) |
 | Load-test the web app (scripted demo, free) | `uv run python scripts/load_test.py --spawn` |
-| Container (**image not yet built or run**) | `docker build -t jobshop-agent .` then `docker run --rm -p 127.0.0.1:8000:8000 jobshop-agent` |
+| Container (built and run once, 2026-10-12; no model configured inside) | `docker build -t jobshop-agent .` then `docker run --rm -p 127.0.0.1:8000:8000 jobshop-agent` |
 
 The web UI starts from a committed fixture shop (`evals/shop.json`: 12 orders on 4 machines, one day; the evals also use a tighter 19-order shop), so
 it opens instantly. Without an API key it still shows the plan and chat is disabled. It listens on
@@ -192,7 +204,7 @@ it opens instantly. Without an API key it still shows the plan and chat is disab
   It measures what the harness contains, not how a real model behaves. A web rate limit and a test that fails when any
   prompt or tool description changes round it out.
 - **Open models:** a stub-tested adapter lets any model name `ollama:<name>` run the same loop; it has not met a real Ollama.
-- **Running it:** health check, streamed progress (Server-Sent Events), a Dockerfile (not yet built), a load test, and
+- **Running it:** health check, streamed progress (Server-Sent Events), a Dockerfile (built and run once), a load test, and
   OpenTelemetry trace export.
 - **Evals:** 48 scenarios on two shops; checks read the system's state, not the model's wording; an LLM judge
   that must be a different model; a scripted reference agent; mutation testing of the guards and checks.
@@ -207,13 +219,13 @@ Reasons, trade-offs and a glossary: [docs/DESIGN.md](docs/DESIGN.md). Threat mod
 | Verified | Not verified |
 |---|---|
 | The solver against an independent validator and recomputation | The LLM judge on a real model |
-| Tools, loop, approval, store and the MCP server over real stdio, by 1341 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
+| Tools, loop, approval, store and the MCP server over real stdio, by 1361 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
 | The web API (CSRF, Origin, Host, CSP, approval fingerprint) over a real socket | Claude Desktop/Code connecting to the MCP server |
 | The UI in a real browser: chat, proposal, Approve, charts, dark mode, phone width | The Approve flow with a real model; screen readers; browsers other than one |
 | A real model on 29 scenarios, deterministic checks only (above) | The changes since then (goal option, caching, plant documents, new scenarios) over the full suite on a real model; whether a real model searches, cites and stays grounded, including declining to answer from a nearest-but-irrelevant passage |
 | Safety, eval and API code by mutation testing: guards broken on purpose, a test failed for each | A security audit: this is a local single-user app, not hardened for a network |
 | Memory, patterns and extraction logic with scripted models; the web layer under concurrent load (20 users: one chat accepted, 19 told to wait, no errors); the event stream live on a real socket | Any of those on a real model: whether stored preferences are followed, whether `verify`/`reflect`/`plan` help, how a model does on the emails |
-| Trace export against the OTLP JSON structure | The container image (never built: Docker was not running); trace export into a real tracing backend |
+| Trace export against the OTLP JSON structure; the container image built and run once (non-root user, healthy, page and plan served, foreign Host refused) | Chat inside the container with a real model; trace export into a real tracing backend |
 | Routing, the answer guards, the rate limit, the prompt snapshot and the red-team scoring with scripted models; the red team's 12 attacks against a fully obedient scripted model (live plan never changed) | Whether routing saves money or improves answers; the judge, patterns, preferences and extractor on a real model. The Ollama adapter against a real Ollama (none installed here) |
 | All 12 red-team attacks read by `claude-sonnet-5-5`, `react` and `route`, 2 runs each: 0 succeeded, live plan never changed. One real scenario passes | Run-to-run variation beyond 2 runs, and models other than this one; the judge and the `plan`/`reflect` patterns on a real model |
 
@@ -232,11 +244,11 @@ src/jobshop/api/         FastAPI app and the web UI (static/)
 src/jobshop/evals/       scenarios, checks, judge, runner, comparison, record/replay, retrieval scoring, reference agent, red team, prompt snapshot
 src/jobshop/knowledge/   chunking, keyword (BM25) and embedding search over the plant documents   (no LLM)
 src/jobshop/extraction/  reading orders out of emails: schema, checks, rule-based baseline, model extractor, scoring
-scripts/                 demo_server.py (scripted model, real solver), load_test.py
+scripts/                 demo_all.py (the whole project in one command), demo_server.py (scripted model, real solver), load_test.py
 evals/                   two fixture shops, 48 scenarios (YAML), 12 red-team attacks, prompt snapshot, retrieval questions, labelled emails, results (gitignored)
 knowledge/               synthetic plant documents the agent can search (markdown)
 tests/                   mirrors src/
-docs/                    ROADMAP, DESIGN, EVALS, SAFETY, OBSERVABILITY, MCP
+docs/                    DEMO, ROADMAP, DESIGN, EVALS, SAFETY, OBSERVABILITY, MCP, GUIDE (PDF)
 ```
 
 Built in phases, each reviewed before the next. [`PROJECT_RULES.md`](PROJECT_RULES.md) records the working rules

@@ -41,6 +41,22 @@ def _proposal_draft(run: Run) -> Draft | None:
         return None
 
 
+def changes_from_calls(run: Run) -> Changes:
+    """The edits the model applied, read from its successful tool calls (for a draft it later discarded)."""
+    downtimes, priorities, rush = [], {}, []
+    for c in run.calls:
+        if c.is_error:
+            continue
+        a = c.arguments
+        if c.name == "simulate_downtime":
+            downtimes.append(Downtime(machine=a["machine_id"], start=a["start"], end=a["end"]))
+        elif c.name == "change_priority":
+            priorities[a["order_id"]] = a["priority"]
+        elif c.name == "add_rush_order":
+            rush.append(RushOrder(family=a["family"], due=a["due"], priority=a.get("priority", 5)))
+    return Changes(downtimes=downtimes, priorities=priorities, rush_orders=rush)
+
+
 def actual_changes(before: Instance, after: Instance) -> Changes:
     """What differs between the live instance and a draft's, in the same terms scenarios are written in."""
     old_windows = {m.id: Counter((w.start, w.end) for w in m.downtime) for m in before.machines}
@@ -125,9 +141,15 @@ def check_changes(run: Run) -> CheckResult:
     if expect.outcome not in ("proposal", "infeasible"):
         return CheckResult("changes", None)
     draft = _proposal_draft(run)
-    if draft is None:
+    if draft is not None:
+        actual = actual_changes(run.ctx.store.committed.instance, draft.instance)
+    elif expect.outcome == "infeasible" and any(c.name == "discard_draft" and not c.is_error for c in run.calls):
+        # Throwing away a draft that cannot be solved is good behaviour, so there is no draft to read the edits from.
+        # Judge what it tried from the successful edit calls instead.
+        actual = changes_from_calls(run)
+    else:
         return CheckResult("changes", False, ["the answer names no existing draft"])
-    expected, actual = expect.changes, actual_changes(run.ctx.store.committed.instance, draft.instance)
+    expected = expect.changes
     assert expected is not None
     problems = _diff_lists("downtime", expected.downtimes, actual.downtimes)
     problems += _diff_lists("rush order", expected.rush_orders, actual.rush_orders)
