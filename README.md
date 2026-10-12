@@ -10,7 +10,7 @@ and approves it.
 This is a portfolio project, built to learn AI engineering. The agent's tool-use loop is written by hand
 on the Anthropic SDK (no agent framework), and all data is synthetic.
 
-> **Status.** Built, tested and demo-ready: 1424 automated tests, CI on every push, a container that builds and runs.
+> **Status.** Built, tested and demo-ready: 1435 automated tests, CI on every push, a container that builds and runs.
 > Against a real model (`claude-sonnet-5-5`): **0 of 56 live red-team runs succeeded** (12 attacks) and the live plan never changed;
 > **32 of 35** judged scenarios passed every check. Ten-minute demo with no API key: [docs/DEMO.md](docs/DEMO.md)
 > (`uv run python scripts/demo_all.py`). Scope and caveats: [What is and isn't verified](#what-is-and-isnt-verified).
@@ -171,6 +171,8 @@ uv run pytest                    # about five minutes; 5 tests are skipped (opt-
 | Check that no prompt or tool description changed unnoticed | `uv run python -m jobshop.evals snapshot` (`--update` after the evals justify a change) |
 | Use a local open model (adapter run against a real Ollama; a 3B model could not finish the loop) | name it `ollama:<model>` in `ANTHROPIC_MODEL`, `--model` or `JOBSHOP_TRIAGE_MODEL`; see [docs/DESIGN.md](docs/DESIGN.md#open-models-phase-13) |
 | Load-test the web app (scripted demo, free) | `uv run python scripts/load_test.py --spawn` |
+| Load-test the Docker image (one command; needs Docker and `docker build -t jobshop-agent .`) | `uv run python scripts/load_test_container.py` |
+| See a turn as a trace in Jaeger (one command; needs Docker) | `uv run python scripts/demo_traces.py` |
 | Container (built and run once, 2026-10-12; no model configured inside) | `docker build -t jobshop-agent .` then `docker run --rm -p 127.0.0.1:8000:8000 jobshop-agent` |
 
 The web UI starts from a committed fixture shop (`evals/shop.json`: 12 orders on 4 machines, one day; the evals also use a tighter 19-order shop), so
@@ -227,7 +229,7 @@ Reasons, trade-offs and a glossary: [docs/DESIGN.md](docs/DESIGN.md). Threat mod
 | Verified | Not verified |
 |---|---|
 | The solver against an independent validator and recomputation | The LLM judge on a real model |
-| Tools, loop, approval, store and the MCP server over real stdio, by 1424 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
+| Tools, loop, approval, store and the MCP server over real stdio, by 1435 automated tests, run by CI on every push | A comparison of two real models (started, stopped at 46 of 234 runs; no report) |
 | The web API (CSRF, Origin, Host, CSP, approval fingerprint) over a real socket | Claude Desktop/Code connecting to the MCP server |
 | The UI in a real browser: chat, proposal, Approve, charts, dark mode, phone width | The Approve flow with a real model; screen readers; browsers other than one |
 | A real model on 29 scenarios, deterministic checks only (above) | The changes since then (goal option, caching, plant documents, new scenarios) over the full suite on a real model; whether a real model searches, cites and stays grounded, including declining to answer from a nearest-but-irrelevant passage |

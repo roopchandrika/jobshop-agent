@@ -274,6 +274,11 @@ check has no false alarms on correct answers) but not `plan` or `reflect`, which
   told to wait (409), none failed, and the accepted turn finished. Read these as "the web layer behaves under concurrency",
   not as capacity figures: the model is a stand-in, each request opens a new connection from Python threads on a laptop, and
   the single-planner design means a second message is refused by design.
+- **The same test against the Docker image** (`scripts/load_test_container.py`: the image's own Python and solver, the scripted
+  model mounted from the checkout, published to loopback). Over three runs on this machine with 20 users: 500 state reads and 500
+  health reads each with no errors (p50 22 to 57 ms, p95 36 to 90 ms, max up to 170 ms), and of 20 simultaneous chat messages
+  exactly 1 accepted and 19 told to wait, none failed, and the accepted turn finished. The in-process app gave the same
+  behaviour (p50 64 ms, p95 76 ms in the run beside it). The spread between runs is machine noise, so quote the range.
 
 Still absent for real deployment: accounts and login, a database instead of in-memory state, background job queues,
 and a metrics endpoint. (A limit on turns per minute and hour was added in Phase 15, below.)

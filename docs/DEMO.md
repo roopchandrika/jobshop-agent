@@ -42,10 +42,9 @@ patterns, multi-agent routing, an Ollama adapter, evals, red team, tracing, a co
 ## Optional: a real trace in Jaeger (two minutes, needs Docker)
 
 ```bash
-docker run -d --rm --name jaeger -p 127.0.0.1:16686:16686 -p 127.0.0.1:4318:4318 jaegertracing/jaeger:latest
-uv run python -m jobshop.agent.trace_export logs/traces/<file>.jsonl --send http://127.0.0.1:4318/v1/traces
+uv run python scripts/demo_traces.py            # starts Jaeger, loads a scripted turn, prints the URL, stops it on Enter
 # open http://127.0.0.1:16686, pick the service jobshop-agent, open a trace: model calls and tool calls as a waterfall
-docker stop jaeger
+uv run python scripts/demo_traces.py --trace logs/traces/<file>.jsonl --open     # a trace you made yourself
 ```
 
 Say: "Every turn is an OpenTelemetry trace: a span per model call and per tool call, with tokens, model and latency. It carries
@@ -79,6 +78,6 @@ Measured offline:
 |---|---|
 | Attack success against a fully obedient scripted model | 30 attacks: 87% (no guards) to 43% (answer guards) to 3% (routing) |
 | Retrieval of hard paraphrases | embeddings 6 of 6, keywords 3 of 6 |
-| Tests | 1424 pass; CI on every push |
+| Tests | 1435 pass; CI on every push |
 | Scenarios | 48; the reference agent passes 48/48 under `react`, `route` and `route+verify` |
 | Container | built and run: non-root, healthy, page and plan served, foreign Host header refused |
