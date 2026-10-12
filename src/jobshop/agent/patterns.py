@@ -245,7 +245,7 @@ Routes
 - read: a question about the current plan, an order, a machine, or how the plant works; it needs looking things up and changes nothing.
 - plan: a disruption or a change to try (a machine outage, a priority change, a rush order), or a request to compare options.
 - clarify: a request that would change the plan but is missing something needed to act (which order, which machine, what time, how urgent). Put the one concise question in "question".
-- decline_commit: the planner asks you to commit, apply, approve or make a plan live. Nobody but the planner can; do not route this anywhere else.
+- decline_commit: the message asks ONLY to commit, apply, approve or make a plan live, with no change to try. Nobody but the planner can. If it asks for a change AND to apply it, choose plan: the change can be tried on a draft, and the agent will say it cannot apply it.
 
 If unsure between read and plan, choose plan. Submit your choice by calling submit_triage."""
 
